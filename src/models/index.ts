@@ -289,27 +289,31 @@ export class LocalAIProvider implements AIProvider {
     }
     complexity.averageFileSize = complexity.fileCount > 0
       ? Math.round(complexity.totalLines / complexity.fileCount) : 0
+    const docRepo = langCount === 0 && complexity.fileCount > 0 && (input.readme?.length ?? 0) > 200
     complexity.overall = Math.min(100, Math.round(
-      (langCount === 0 ? 0 : 20) +
+      (langCount === 0 ? (docRepo ? 15 : 0) : 20) +
       (complexity.fileCount < 50 ? 25 : complexity.fileCount < 200 ? 15 : 5) +
-      (complexity.averageFileSize < 100 ? 25 : complexity.averageFileSize < 300 ? 15 : 5) +
+      (complexity.averageFileSize < 100 ? 25 : (complexity.averageFileSize < 300 || docRepo) ? 15 : 5) +
       (complexity.totalLines < 10000 ? 30 : complexity.totalLines < 50000 ? 20 : 10)
     ))
 
     const readmeText = input.readme || ''
     const readmeLower = readmeText.toLowerCase()
+    const headingCount = readmeText.match(/^## /gm)?.length ?? 0
+    const hasHeadingStructure = headingCount >= 1
     const sections = [
       { section: 'Description', present: readmeText.length > 50 },
-      { section: 'Installation', present: readmeLower.includes('install') },
-      { section: 'Usage', present: readmeLower.includes('usage') || readmeLower.includes('example') },
-      { section: 'API Documentation', present: readmeLower.includes('api') },
-      { section: 'Configuration', present: readmeLower.includes('config') },
+      { section: 'Installation', present: readmeLower.includes('install') || (hasHeadingStructure && headingCount >= 2) },
+      { section: 'Usage', present: readmeLower.includes('usage') || readmeLower.includes('example') || (hasHeadingStructure && headingCount >= 3) },
+      { section: 'API Documentation', present: readmeLower.includes('api') || (hasHeadingStructure && headingCount >= 4) },
+      { section: 'Configuration', present: readmeLower.includes('config') || (hasHeadingStructure && headingCount >= 5) },
       { section: 'Contributing', present: readmeLower.includes('contributing') },
       { section: 'License', present: readmeLower.includes('license') },
       { section: 'Code of Conduct', present: readmeLower.includes('code of conduct') },
       { section: 'Changelog', present: readmeLower.includes('changelog') },
       { section: 'Tests', present: readmeLower.includes('test') },
     ]
+    const hasGoodStructure = headingCount >= 3
     const docs = {
       readmeScore: input.readme
         ? Math.min(100, Math.round(
@@ -318,7 +322,8 @@ export class LocalAIProvider implements AIProvider {
             (readmeLower.includes('install') ? 15 : 0) +
             (readmeLower.includes('usage') || readmeLower.includes('example') ? 15 : 0) +
             (readmeLower.includes('api') || readmeLower.includes('config') ? 10 : 0) +
-            (readmeLower.includes('license') ? 10 : 0)
+            (readmeLower.includes('license') ? 10 : 0) +
+            (hasGoodStructure && !readmeLower.includes('install') ? 10 : 0)
           ))
         : 0,
       hasReadme: !!input.readme,
@@ -333,14 +338,19 @@ export class LocalAIProvider implements AIProvider {
       suggestions: [],
     }
 
+    const lastCommitDays = input.pushedAt
+      ? Math.round((Date.now() - new Date(input.pushedAt).getTime()) / 86400000)
+      : 30
+    const hasRecentActivity = lastCommitDays < 90
+
     const health = {
       overall: 50,
       stars: input.stars ?? 0,
       forks: input.forks ?? 0,
       openIssues: 0,
       issuesPerStar: 0,
-      lastCommitDays: 30,
-      hasRecentActivity: true,
+      lastCommitDays,
+      hasRecentActivity,
       contributorCount: input.contributorCount ?? 0,
       busFactor: 1,
       releaseCount: 0,
@@ -348,9 +358,10 @@ export class LocalAIProvider implements AIProvider {
       hasTests,
     }
 
-    let params = this.rl.getCurrentParams()
+    let weightParams = this.rl.getCurrentParams()
     if (this.options.useReinforcementLearning) {
       const readme = input.readme || ''
+      const hasDocker = checkHasDockerfile(input.fileTree)
       const state: State = {
         repoStars: health.stars,
         repoForks: health.forks,
@@ -364,14 +375,34 @@ export class LocalAIProvider implements AIProvider {
         docsSectionCount: this.computeDocsSectionCount(readme),
         hasApiDocs: docs.hasApiDocs,
         hasLicense: docs.hasLicense,
+        lastCommitDays,
+        hasDockerfile: hasDocker,
+        hasContributing: docs.hasContributing,
       }
       const stateValidation = this.selfHealing.validateComponent('rlState', state)
       if (!stateValidation.valid) {
         const healed = this.selfHealing.healOutput('rlState', state, stateValidation)
         Object.assign(state, healed)
       }
-      params = this.rl.getOptimalParams(state)
+      weightParams = this.rl.getOptimalParams(state)
     }
+    const params = this.rl.mergeWithDefaults(weightParams, {
+      repoStars: health.stars,
+      repoForks: health.forks,
+      fileCount: complexity.fileCount,
+      languageCount: langCount,
+      readmeLength: (input.readme || '').length,
+      contributorCount: health.contributorCount,
+      hasTests: health.hasTests,
+      hasCI: health.hasCI,
+      readmeScore: docs.readmeScore,
+      docsSectionCount: this.computeDocsSectionCount(input.readme || ''),
+      hasApiDocs: docs.hasApiDocs,
+      hasLicense: docs.hasLicense,
+      lastCommitDays,
+      hasDockerfile: checkHasDockerfile(input.fileTree),
+      hasContributing: docs.hasContributing,
+    })
 
     if (this.options.useSelfHealing) {
       const docsValidation = this.selfHealing.validateComponent('docs', docs)
@@ -400,12 +431,14 @@ export class LocalAIProvider implements AIProvider {
 
   private computeDocsSectionCount(readme: string): number {
     if (!readme) return 0
+    const headingCount = readme.match(/^## /gm)?.length ?? 0
+    const hasHeadingStructure = headingCount >= 1
     let count = 0
     if (readme.length > 50) count++
-    if (readme.toLowerCase().includes('install')) count++
-    if (readme.toLowerCase().includes('usage') || readme.toLowerCase().includes('example')) count++
-    if (readme.toLowerCase().includes('api')) count++
-    if (readme.toLowerCase().includes('config')) count++
+    if (readme.toLowerCase().includes('install') || (hasHeadingStructure && headingCount >= 2)) count++
+    if (readme.toLowerCase().includes('usage') || readme.toLowerCase().includes('example') || (hasHeadingStructure && headingCount >= 3)) count++
+    if (readme.toLowerCase().includes('api') || (hasHeadingStructure && headingCount >= 4)) count++
+    if (readme.toLowerCase().includes('config') || (hasHeadingStructure && headingCount >= 5)) count++
     if (readme.toLowerCase().includes('contributing')) count++
     if (readme.toLowerCase().includes('license')) count++
     if (readme.toLowerCase().includes('code of conduct')) count++
@@ -421,6 +454,8 @@ export class LocalAIProvider implements AIProvider {
     if (!this.options.useReinforcementLearning) return
 
     const readme = input.readme || ''
+    const headingCount = readme.match(/^## /gm)?.length ?? 0
+    const hasGoodStructure = headingCount >= 3
     const fileCount = countFiles(input.fileTree)
     const readmeScore = Math.min(100, Math.round(
       (readme.length > 500 ? 30 : readme.length > 100 ? 15 : 5) +
@@ -428,11 +463,17 @@ export class LocalAIProvider implements AIProvider {
       (readme.toLowerCase().includes('install') ? 15 : 0) +
       (readme.toLowerCase().includes('usage') || readme.toLowerCase().includes('example') ? 15 : 0) +
       (readme.toLowerCase().includes('api') || readme.toLowerCase().includes('config') ? 10 : 0) +
-      (readme.toLowerCase().includes('license') ? 10 : 0)
+      (readme.toLowerCase().includes('license') ? 10 : 0) +
+      (hasGoodStructure && !readme.toLowerCase().includes('install') ? 10 : 0)
     ))
     const docsSectionCount = this.computeDocsSectionCount(readme)
     const hasApiDocs = readme.toLowerCase().includes('api')
     const hasLicense = readme.toLowerCase().includes('license')
+    const hasContributing = readme.toLowerCase().includes('contributing')
+    const lastCommitDays = input.pushedAt
+      ? Math.round((Date.now() - new Date(input.pushedAt).getTime()) / 86400000)
+      : 30
+    const hasDocker = checkHasDockerfile(input.fileTree)
 
     const state: State = {
       repoStars: input.stars ?? 0,
@@ -447,17 +488,21 @@ export class LocalAIProvider implements AIProvider {
       docsSectionCount,
       hasApiDocs,
       hasLicense,
+      lastCommitDays,
+      hasDockerfile: hasDocker,
+      hasContributing,
     }
 
     const baselineParams = this.rl.getCurrentParams()
     for (let exploreStep = 0; exploreStep < 3; exploreStep++) {
       const action = this.rl.selectAction(state, 0.4)
-      const trialParams = this.rl.applyAction(baselineParams, action)
+      const trialWeightParams = this.rl.applyAction(baselineParams, action)
+      const trialParams = this.rl.mergeWithDefaults(trialWeightParams, state)
       const trialScores = computeQualityScores(
         { languages: input.languages, fileTree: input.fileTree, dependencyFiles: input.dependencyFiles } as any,
         { overall: 0, fileCount, totalLines: 0, averageFileSize: 0, deepestNesting: 0, languageBreakdown: [] },
-        { readmeScore, hasReadme: readme.length > 0, readmeLength: readme.length, hasContributing: false, hasCodeOfConduct: false, hasLicense, hasChangelog: false, hasApiDocs, hasWiki: false, sectionCoverage: [], suggestions: [] },
-        { overall: 0, stars: state.repoStars, forks: state.repoForks, openIssues: 0, issuesPerStar: 0, lastCommitDays: 30, hasRecentActivity: true, contributorCount: state.contributorCount, busFactor: 1, releaseCount: 0, hasCI: state.hasCI, hasTests: state.hasTests },
+        { readmeScore, hasReadme: readme.length > 0, readmeLength: readme.length, hasContributing, hasCodeOfConduct: false, hasLicense, hasChangelog: false, hasApiDocs, hasWiki: false, sectionCoverage: [], suggestions: [] },
+        { overall: 0, stars: state.repoStars, forks: state.repoForks, openIssues: 0, issuesPerStar: 0, lastCommitDays, hasRecentActivity: lastCommitDays < 90, contributorCount: state.contributorCount, busFactor: 1, releaseCount: 0, hasCI: state.hasCI, hasTests: state.hasTests },
         trialParams
       )
 
@@ -488,4 +533,12 @@ function countFiles(tree: any[]): number {
     if (node.children) count += countFiles(node.children)
   }
   return count
+}
+
+function checkHasDockerfile(tree: any[]): boolean {
+  for (const node of tree) {
+    if (node.type === 'blob' && ['Dockerfile', 'docker-compose.yml', 'docker-compose.yaml'].includes(node.name)) return true
+    if (node.children && checkHasDockerfile(node.children)) return true
+  }
+  return false
 }

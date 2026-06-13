@@ -33,9 +33,9 @@ export function detectTechnologies(
           }
         }
 
-        for (const [, filename] of Object.entries(dependencyFiles)) {
-          if (regex.test(filename)) {
-            evidence.push(filename)
+        for (const [filepath, content] of Object.entries(dependencyFiles)) {
+          if (regex.test(filepath) || regex.test(content)) {
+            evidence.push(filepath)
             break
           }
         }
@@ -139,20 +139,26 @@ export function detectTechnologies(
 
 function collectFiles(tree: FileNode[], path: string = ''): string[] {
   const files: string[] = []
+  const MAX_FILES = 5000
   for (const node of tree) {
+    if (files.length >= MAX_FILES) break
     const fullPath = path ? `${path}/${node.name}` : node.name
     if (node.type === 'blob') {
       files.push(fullPath)
     }
-    if (node.children) {
-      files.push(...collectFiles(node.children, fullPath))
+    if (node.children && files.length < MAX_FILES) {
+      const childFiles = collectFiles(node.children, fullPath)
+      for (const f of childFiles) {
+        if (files.length >= MAX_FILES) break
+        files.push(f)
+      }
     }
   }
   return files
 }
 
 export function detectPackageManager(dependencyFiles: Record<string, string>): string {
-  const files = Object.values(dependencyFiles)
+  const files = Object.keys(dependencyFiles)
   if (files.some(f => f.includes('package-lock'))) return 'npm'
   if (files.some(f => f.includes('yarn.lock'))) return 'yarn'
   if (files.some(f => f.includes('pnpm-lock'))) return 'pnpm'
@@ -175,18 +181,22 @@ export function detectDevCommands(dependencyFiles: Record<string, string>, langu
   const hasPython = languages.hasOwnProperty('Python')
   const hasGo = languages.hasOwnProperty('Go')
   const hasRust = languages.hasOwnProperty('Rust')
+  const depFiles = Object.keys(dependencyFiles)
 
-  if (hasNode) {
+  if (depFiles.some(f => f.includes('package.json'))) {
     return { dev: 'npm run dev', build: 'npm run build', test: 'npm test', install: 'npm install' }
   }
-  if (hasPython) {
+  if (hasPython || depFiles.some(f => f.includes('requirements') || f.includes('Pipfile') || f.includes('pyproject'))) {
     return { dev: 'python main.py', build: 'python setup.py build', test: 'pytest', install: 'pip install -r requirements.txt' }
   }
-  if (hasGo) {
+  if (hasGo || depFiles.some(f => f.includes('go.mod'))) {
     return { dev: 'go run .', build: 'go build ./...', test: 'go test ./...', install: 'go mod download' }
   }
-  if (hasRust) {
+  if (hasRust || depFiles.some(f => f.includes('Cargo.toml'))) {
     return { dev: 'cargo run', build: 'cargo build --release', test: 'cargo test', install: 'cargo build' }
+  }
+  if (hasNode) {
+    return { dev: 'npm run dev', build: 'npm run build', test: 'npm test', install: 'npm install' }
   }
   return { dev: 'npm run dev', build: 'npm run build', test: 'npm test', install: 'npm install' }
 }

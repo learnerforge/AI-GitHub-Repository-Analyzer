@@ -76,7 +76,7 @@ const SMELL_RULES: {
     title: 'Missing License',
     description: 'No license file found. This creates legal ambiguity for potential users and contributors.',
     check: (input) => !input.readmeContent.toLowerCase().includes('license') &&
-      !Object.values(input.dependencyFiles).some(f => f.toLowerCase().includes('license')),
+      !Object.keys(input.dependencyFiles).some(f => f.toLowerCase().includes('license')),
   },
   {
     id: 'many-languages',
@@ -93,7 +93,7 @@ const SMELL_RULES: {
     title: 'No Contributing Guidelines',
     description: 'Missing CONTRIBUTING.md. Guidelines help standardize the contribution process.',
     check: (input) => !input.readmeContent.toLowerCase().includes('contribut') &&
-      !Object.values(input.dependencyFiles).some(f => f.toLowerCase().includes('contribut')),
+      !Object.keys(input.dependencyFiles).some(f => f.toLowerCase().includes('contribut')),
   },
   {
     id: 'stale-dependencies',
@@ -107,7 +107,7 @@ const SMELL_RULES: {
       )
       if (!hasPackageManager) return false
       const lockFiles = ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'Gemfile.lock', 'Cargo.lock', 'go.sum']
-      return !Object.values(input.dependencyFiles).some(f => lockFiles.includes(f))
+      return !Object.keys(input.dependencyFiles).some(f => lockFiles.includes(f))
     },
   },
 ]

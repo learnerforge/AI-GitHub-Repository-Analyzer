@@ -1,5 +1,6 @@
-import { RepoInfo, AnalysisReport, ComplexityMetrics, DocsQuality, HealthMetrics, QualityScores, AIAnalysisInput, FileNode } from '@/types'
+import { RepoInfo, AnalysisReport, ComplexityMetrics, DocsQuality, HealthMetrics, QualityScores, AIAnalysisInput, FileNode, AdvancedSignals, ReadmeLevelScores } from '@/types'
 import { createAIProvider, AIProvider } from './ai'
+import { computeReadmeLevelScores, classifyRepoPersonality, computeProjectCompleteness, computeOnboardingDifficulty, computeAbandonmentRisk, computeConfigComplexity, computeDocCoverage, computeContributorFriendliness, computeSecurityMaturity, computeDeploymentReadiness, computeLearningValue, computeReadmeCodeConsistency, computeTechDebtIndicators, computeMaintainabilityIndex } from '@/models/advancedSignals'
 
 let aiProvider: AIProvider | null = null
 
@@ -52,9 +53,9 @@ function computeComplexity(repo: RepoInfo): ComplexityMetrics {
 
   const deepestNesting = computeMaxDepth(repo.fileTree)
 
-  const totalBytes = Object.values(repo.languages).reduce((a, b) => a + b, 0) || 1
+  const totalBytes = Object.values(repo.languages).reduce((a, b) => a + b, 0)
   for (const [lang, bytes] of Object.entries(repo.languages)) {
-    const percentage = (bytes / totalBytes) * 100
+    const percentage = totalBytes > 0 ? (bytes / totalBytes) * 100 : 0
     const estLines = Math.round(bytes / 50)
     langCounts[lang] = Math.round(percentage * 10) / 10
     langLines[lang] = estLines
@@ -65,16 +66,37 @@ function computeComplexity(repo: RepoInfo): ComplexityMetrics {
     .sort(([, a], [, b]) => b - a)
     .map(([language, bytes]) => ({
       language,
-      files: Math.max(1, Math.round((bytes / totalBytes) * fileCount)),
+      files: Math.max(1, fileCount > 0 ? Math.round((bytes / Math.max(1, totalBytes)) * fileCount) : 1),
       lines: Math.round(bytes / 50),
     }))
 
   const averageFileSize = fileCount > 0 ? Math.round(totalLines / fileCount) : 0
+  const langCount = Object.keys(repo.languages).length
 
-  const fileCountScore = fileCount === 0 ? 0 : fileCount < 20 ? 20 : Math.max(5, Math.round(25 - Math.log2(fileCount / 20) * 5))
-  const fileSizeScore = averageFileSize === 0 ? 0 : averageFileSize < 50 ? 20 : Math.max(5, Math.round(22 - Math.log2(averageFileSize / 50) * 4))
-  const linesScore = totalLines === 0 ? 0 : totalLines < 3000 ? 30 : Math.max(10, Math.round(35 - Math.log2(totalLines / 3000) * 5))
-  const langDiversityScore = repo.languages && Object.keys(repo.languages).length > 0 ? Math.min(30, Object.keys(repo.languages).length * 6) : 0
+  const docRepo = fileCount > 0 && langCount === 0 && repo.readmeContent.length > 200
+
+  let fileCountScore: number
+  if (fileCount === 0) {
+    fileCountScore = docRepo ? 15 : 0
+  } else if (docRepo) {
+    fileCountScore = fileCount < 50 ? 20 : Math.max(10, Math.round(25 - Math.log2(fileCount / 50) * 5))
+  } else if (fileCount < 20) {
+    fileCountScore = 20
+  } else {
+    fileCountScore = Math.max(5, Math.round(25 - Math.log2(fileCount / 20) * 3))
+  }
+
+  const fileSizeScore = averageFileSize === 0
+    ? (docRepo ? 15 : 0)
+    : averageFileSize < 50 ? 20 : Math.max(5, Math.round(22 - Math.log2(averageFileSize / 50) * 4))
+
+  const linesScore = totalLines === 0
+    ? (docRepo ? 25 : 0)
+    : totalLines < 3000 ? 30 : Math.max(10, Math.round(35 - Math.log2(totalLines / 3000) * 5))
+
+  const langDiversityScore = langCount > 0
+    ? Math.min(30, langCount * 6)
+    : (docRepo ? 10 : 0)
 
   const overall = Math.min(100, Math.round(fileCountScore + fileSizeScore + linesScore + langDiversityScore))
 
@@ -84,6 +106,9 @@ function computeComplexity(repo: RepoInfo): ComplexityMetrics {
 }
 
 function computeDocsQuality(repo: RepoInfo): DocsQuality {
+  const headingCount = repo.readmeContent ? (repo.readmeContent.match(/^## /gm) || []).length : 0
+  const hasGoodStructure = headingCount >= 3
+
   const readmeScore = repo.readmeContent
     ? Math.min(100, Math.round(
         (repo.readmeContent.length > 500 ? 30 : repo.readmeContent.length > 100 ? 15 : 5) +
@@ -91,18 +116,21 @@ function computeDocsQuality(repo: RepoInfo): DocsQuality {
         (repo.readmeContent.toLowerCase().includes('install') ? 15 : 0) +
         (repo.readmeContent.toLowerCase().includes('usage') || repo.readmeContent.toLowerCase().includes('example') ? 15 : 0) +
         (repo.readmeContent.toLowerCase().includes('api') || repo.readmeContent.toLowerCase().includes('config') ? 10 : 0) +
-        (repo.readmeContent.toLowerCase().includes('license') || repo.readmeContent.toLowerCase().includes('contributing') ? 10 : 0)
+        (repo.readmeContent.toLowerCase().includes('license') || repo.readmeContent.toLowerCase().includes('contributing') ? 10 : 0) +
+        (hasGoodStructure && !repo.readmeContent.toLowerCase().includes('install') ? 10 : 0)
       ))
     : 0
 
   const fileNames = repo.fileTree.map(f => f.name.toLowerCase())
 
+  const hasHeadingStructure = repo.readmeContent ? /^## /m.test(repo.readmeContent) : false
+
   const sectionCoverage = [
     { section: 'Description', present: repo.readmeContent.length > 50 },
-    { section: 'Installation', present: repo.readmeContent.toLowerCase().includes('install') },
-    { section: 'Usage', present: repo.readmeContent.toLowerCase().includes('usage') || repo.readmeContent.toLowerCase().includes('example') },
-    { section: 'API Documentation', present: repo.readmeContent.toLowerCase().includes('api') },
-    { section: 'Configuration', present: repo.readmeContent.toLowerCase().includes('config') },
+    { section: 'Installation', present: repo.readmeContent.toLowerCase().includes('install') || (hasHeadingStructure && headingCount >= 2) },
+    { section: 'Usage', present: repo.readmeContent.toLowerCase().includes('usage') || repo.readmeContent.toLowerCase().includes('example') || (hasHeadingStructure && headingCount >= 3) },
+    { section: 'API Documentation', present: repo.readmeContent.toLowerCase().includes('api') || (hasHeadingStructure && headingCount >= 4) },
+    { section: 'Configuration', present: repo.readmeContent.toLowerCase().includes('config') || (hasHeadingStructure && headingCount >= 5) },
     { section: 'Contributing', present: fileNames.includes('contributing.md') || repo.readmeContent.toLowerCase().includes('contributing') },
     { section: 'License', present: repo.readmeContent.toLowerCase().includes('license') || repo.license !== null },
     { section: 'Code of Conduct', present: fileNames.includes('code_of_conduct.md') },
@@ -240,6 +268,7 @@ export async function analyzeRepository(repo: RepoInfo): Promise<AnalysisReport>
     stars: repo.stars,
     forks: repo.forks,
     contributorCount: repo.contributors.length,
+    pushedAt: repo.pushedAt,
   }
 
   const aiResult = await getAIProvider().analyze(aiInput)
@@ -250,13 +279,53 @@ export async function analyzeRepository(repo: RepoInfo): Promise<AnalysisReport>
   const docsQuality = computeDocsQuality(repo)
   const health = computeHealth(repo)
 
-  const overallQualityScore = Math.round(
-    (aiResult.qualityScores.overall * 0.4) +
-    (docsQuality.readmeScore * 0.15) +
-    (health.overall * 0.2) +
-    (complexity.overall * 0.15) +
-    (aiResult.qualityScores.security * 0.1)
+  const readmeLevels = computeReadmeLevelScores(repo.readmeContent, repo, docsQuality)
+  docsQuality.readmeLevels = readmeLevels
+
+  const depKeys = Object.keys(repo.dependencyFiles)
+  const fileNames = repo.fileTree.map(f => f.name.toLowerCase())
+  const totalBlobs = complexity.fileCount
+  const langCount = Object.keys(repo.languages).length
+  const docRepo = langCount === 0 && totalBlobs > 0 && repo.readmeContent.length > 200
+
+  const advancedSignals: AdvancedSignals = {
+    personality: classifyRepoPersonality(repo, totalBlobs > 5, totalBlobs, langCount, docRepo),
+    completeness: computeProjectCompleteness(!!repo.readmeContent, health.hasTests, !!repo.license, health.hasCI, totalBlobs, depKeys),
+    onboardingDifficulty: computeOnboardingDifficulty(docsQuality, totalBlobs, depKeys, complexity.deepestNesting, health.hasTests, health.hasCI),
+    abandonmentRisk: computeAbandonmentRisk(health.lastCommitDays, health.hasRecentActivity, health.contributorCount, health.stars, health.overall),
+    configComplexity: computeConfigComplexity(depKeys),
+    docCoverage: computeDocCoverage(repo),
+    contributorFriendliness: computeContributorFriendliness(repo.readmeContent.toLowerCase(), fileNames, repo.fileTree.some(f => f.path.includes('issue_template') || f.path.includes('.github/ISSUE_TEMPLATE')), repo.fileTree.some(f => f.path.includes('pull_request_template') || f.path.includes('.github/PULL_REQUEST_TEMPLATE'))),
+    securityMaturity: computeSecurityMaturity(repo, repo.readmeContent.toLowerCase(), health.hasCI),
+    deploymentReadiness: computeDeploymentReadiness(depKeys, health.hasCI, health.hasTests, repo.readmeContent.toLowerCase()),
+    learningValue: computeLearningValue(repo.readmeContent, (repo.readmeContent.match(/^## /gm) ?? []).length, totalBlobs, docRepo),
+    readmeCodeConsistency: computeReadmeCodeConsistency(repo.readmeContent.toLowerCase(), depKeys, aiResult.techStack),
+    techDebtIndicators: computeTechDebtIndicators(repo),
+    maintainabilityIndex: computeMaintainabilityIndex(complexity.deepestNesting, totalBlobs, complexity.averageFileSize, health.hasTests, health.hasCI, !!repo.readmeContent),
+  }
+
+  const personalityWeights: Record<string, { rw: number; cw: number }> = {
+    'Documentation Repository': { rw: 0.70, cw: 0.30 },
+    'Educational Resource': { rw: 0.70, cw: 0.30 },
+    'Research Project': { rw: 0.50, cw: 0.50 },
+    'Library': { rw: 0.35, cw: 0.65 },
+    'Open Source Framework': { rw: 0.35, cw: 0.65 },
+    'Dataset Repository': { rw: 0.60, cw: 0.40 },
+  }
+  const w = personalityWeights[advancedSignals.personality] ?? { rw: 0.25, cw: 0.75 }
+
+  const codeComposite = Math.round(
+    aiResult.qualityScores.codeQuality * 0.35 +
+    complexity.overall * 0.25 +
+    health.overall * 0.20 +
+    aiResult.qualityScores.maintainability * 0.20
   )
+  const correctedOverall = Math.round(
+    docsQuality.readmeScore * w.rw +
+    codeComposite * w.cw
+  )
+
+  const overallQualityScore = correctedOverall
 
   const qualityScores: QualityScores = {
     overall: overallQualityScore,
@@ -297,5 +366,6 @@ export async function analyzeRepository(repo: RepoInfo): Promise<AnalysisReport>
       ? 'local-clone'
       : 'github-api',
     outlierAlerts: outlierAlerts.length > 0 ? outlierAlerts : undefined,
+    advancedSignals,
   }
 }

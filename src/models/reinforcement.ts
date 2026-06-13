@@ -14,10 +14,13 @@ export interface State {
   docsSectionCount: number
   hasApiDocs: boolean
   hasLicense: boolean
+  lastCommitDays: number
+  hasDockerfile: boolean
+  hasContributing: boolean
 }
 
 interface Action {
-  paramName: keyof ScorerParams
+  paramName: keyof WeightParams
   delta: number
 }
 
@@ -27,6 +30,32 @@ interface Experience {
   reward: number
   nextState: State
   timestamp: number
+}
+
+const WEIGHT_PARAMS: (keyof WeightParams)[] = [
+  'codeQualityWeight',
+  'docsWeight',
+  'maintainabilityWeight',
+  'communityWeight',
+  'securityWeight',
+]
+
+export interface WeightParams {
+  codeQualityWeight: number
+  docsWeight: number
+  maintainabilityWeight: number
+  communityWeight: number
+  securityWeight: number
+}
+
+export interface RuleBonuses {
+  complexityBonus: number
+  readmeBonus: number
+  activityBonus: number
+}
+
+export interface AdjustedScorerParams extends ScorerParams {
+  activityBonus: number
 }
 
 function quantizeState(state: State): string {
@@ -43,6 +72,9 @@ function quantizeState(state: State): string {
     docsSectionCount: state.docsSectionCount === 0 ? 0 : state.docsSectionCount <= 3 ? 1 : state.docsSectionCount <= 6 ? 2 : 3,
     hasApiDocs: state.hasApiDocs ? 1 : 0,
     hasLicense: state.hasLicense ? 1 : 0,
+    lastCommitDays: state.lastCommitDays < 30 ? 0 : state.lastCommitDays < 90 ? 1 : state.lastCommitDays < 365 ? 2 : 3,
+    hasDockerfile: state.hasDockerfile ? 1 : 0,
+    hasContributing: state.hasContributing ? 1 : 0,
   }
   return Object.values(bins).join(':')
 }
@@ -58,10 +90,6 @@ const POSSIBLE_ACTIONS: Action[] = [
   { paramName: 'communityWeight', delta: -0.05 },
   { paramName: 'securityWeight', delta: 0.05 },
   { paramName: 'securityWeight', delta: -0.05 },
-  { paramName: 'complexityBonus', delta: 5 },
-  { paramName: 'complexityBonus', delta: -5 },
-  { paramName: 'readmeBonus', delta: 5 },
-  { paramName: 'readmeBonus', delta: -5 },
 ]
 
 const LEARNING_RATE = 0.1
@@ -73,13 +101,51 @@ const PERSIST_INTERVAL = 10
 const MAX_BUFFER_SIZE = 2000
 const MIN_TRAIN_BATCH = 32
 
+export function applyRuleBonuses(
+  params: ScorerParams,
+  state: State,
+  bonuses?: Partial<RuleBonuses>
+): AdjustedScorerParams {
+  const b = {
+    complexityBonus: bonuses?.complexityBonus ?? 10,
+    readmeBonus: bonuses?.readmeBonus ?? 10,
+    activityBonus: bonuses?.activityBonus ?? 5,
+  }
+
+  if (state.hasCI) b.complexityBonus += 3
+  if (state.hasTests) b.complexityBonus += 2
+  if (state.fileCount > 500) b.complexityBonus -= 3
+
+  if (state.readmeScore > 70) b.readmeBonus += 5
+  if (state.docsSectionCount >= 6) b.readmeBonus += 5
+  if (state.hasApiDocs) b.readmeBonus += 3
+
+  if (state.lastCommitDays < 30) b.activityBonus += 5
+  else if (state.lastCommitDays < 90) b.activityBonus += 3
+  else b.activityBonus += 0
+  if (state.contributorCount > 10) b.activityBonus += 3
+
+  return {
+    ...params,
+    complexityBonus: Math.max(0, Math.min(50, b.complexityBonus)),
+    readmeBonus: Math.max(0, Math.min(50, b.readmeBonus)),
+    activityBonus: Math.max(0, Math.min(50, b.activityBonus)),
+  }
+}
+
 export class ReinforcementLearner {
   private qTable: Map<string, Map<string, number>> = new Map()
   private experienceBuffer: Experience[] = []
   private maxBufferSize = MAX_BUFFER_SIZE
   private minBufferSize = MIN_TRAIN_BATCH
   private trainingSteps = 0
-  private currentParams: ScorerParams = getDefaultParams()
+  private currentParams: WeightParams = {
+    codeQualityWeight: 0.25,
+    docsWeight: 0.20,
+    maintainabilityWeight: 0.20,
+    communityWeight: 0.20,
+    securityWeight: 0.15,
+  }
   private persistCounter = 0
   private totalRewards: number[] = []
   private episodeRewards: number[] = []
@@ -134,13 +200,10 @@ export class ReinforcementLearner {
     return bestAction
   }
 
-  applyAction(params: ScorerParams, action: Action): ScorerParams {
+  applyAction(params: WeightParams, action: Action): WeightParams {
     const newParams = { ...params }
-    const current = (newParams as any)[action.paramName] as number
-    const isBonus = action.paramName === 'complexityBonus' || action.paramName === 'readmeBonus'
-    ;(newParams as any)[action.paramName] = isBonus
-      ? Math.max(0, Math.min(50, current + action.delta))
-      : Math.max(0, Math.min(1, current + action.delta))
+    const current = newParams[action.paramName] as number
+    newParams[action.paramName] = Math.max(0, Math.min(1, current + action.delta)) as any
     return newParams
   }
 
@@ -155,9 +218,7 @@ export class ReinforcementLearner {
     this.episodeRewards.push(reward)
 
     if (this.experienceBuffer.length > this.maxBufferSize) {
-      this.experienceBuffer = this.experienceBuffer.slice(
-        -this.maxBufferSize
-      )
+      this.experienceBuffer = this.experienceBuffer.slice(-this.maxBufferSize)
     }
 
     if (this.totalRewards.length > 1000) {
@@ -261,12 +322,12 @@ export class ReinforcementLearner {
     }
   }
 
-  getOptimalParams(state: State): ScorerParams {
-    let bestParams = getDefaultParams()
+  getOptimalParams(state: State): WeightParams {
+    let bestParams = this.getDefaultWeights()
     let bestReward = -Infinity
 
     for (let step = 0; step < 5; step++) {
-      let params = getDefaultParams()
+      let params = this.getDefaultWeights()
       let totalReward = 0
       const currentState = { ...state }
 
@@ -286,8 +347,35 @@ export class ReinforcementLearner {
     return bestParams
   }
 
-  getCurrentParams(): ScorerParams {
+  getCurrentParams(): WeightParams {
     return this.currentParams
+  }
+
+  getDefaultWeights(): WeightParams {
+    return {
+      codeQualityWeight: 0.25,
+      docsWeight: 0.20,
+      maintainabilityWeight: 0.20,
+      communityWeight: 0.20,
+      securityWeight: 0.15,
+    }
+  }
+
+  mergeWithDefaults(
+    weights: WeightParams,
+    state: State,
+    bonuses?: Partial<RuleBonuses>
+  ): AdjustedScorerParams {
+    const params: ScorerParams = {
+      codeQualityWeight: weights.codeQualityWeight,
+      docsWeight: weights.docsWeight,
+      maintainabilityWeight: weights.maintainabilityWeight,
+      communityWeight: weights.communityWeight,
+      securityWeight: weights.securityWeight,
+      complexityBonus: 10,
+      readmeBonus: 10,
+    }
+    return applyRuleBonuses(params, state, bonuses)
   }
 
   getStats(): {
@@ -356,12 +444,7 @@ export class ReinforcementLearner {
         const state = exp.state as State
         const action = exp.action as Action
         const nextState = exp.nextState as State
-        this.storeExperience(
-          state,
-          action,
-          exp.reward,
-          nextState
-        )
+        this.storeExperience(state, action, exp.reward, nextState)
       }
       this.trainMultiple(10, 64)
     }

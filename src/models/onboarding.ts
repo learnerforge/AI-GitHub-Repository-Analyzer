@@ -38,7 +38,9 @@ export function generateOnboardingGuide(
     return result
   })
 
-  const hasDocker = Object.values(repo.dependencyFiles).some(f => f.toLowerCase().includes('dockerfile'))
+  const hasDocker = Object.keys(repo.dependencyFiles).some(f =>
+    ['Dockerfile', 'docker-compose.yml', 'docker-compose.yaml'].includes(f)
+  )
   const hasDatabase = techStack.databases.length > 0
 
   if (hasDocker) {

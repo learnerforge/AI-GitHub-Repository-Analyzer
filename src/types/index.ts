@@ -78,6 +78,74 @@ export interface DocsQuality {
   hasWiki: boolean
   sectionCoverage: { section: string; present: boolean }[]
   suggestions: string[]
+  readmeLevels?: ReadmeLevelScores
+}
+
+export interface ReadmeLevelScores {
+  existence: number
+  projectIdentity: number
+  problemStatement: number
+  features: number
+  installation: number
+  usage: number
+  examples: number
+  architecture: number
+  techStack: number
+  configuration: number
+  apiDocs: number
+  screenshots: number
+  contributing: number
+  testing: number
+  deployment: number
+  license: number
+  maintenance: number
+  community: number
+  readability: number
+  advancedSignals: number
+  total: number
+}
+
+export type RepoPersonality =
+  | 'Learning Project'
+  | 'Portfolio'
+  | 'Research Project'
+  | 'Startup MVP'
+  | 'Enterprise Application'
+  | 'Open Source Framework'
+  | 'CLI Tool'
+  | 'Dataset Repository'
+  | 'Library'
+  | 'Documentation Repository'
+  | 'Educational Resource'
+
+export type OnboardingLevel = 'Easy' | 'Medium' | 'Hard' | 'Very Hard'
+export type RiskLevel = 'Low Risk' | 'Medium Risk' | 'High Risk' | 'Archived'
+export type MaturityLevel = 'Beginner' | 'Intermediate' | 'Advanced' | 'None'
+
+export interface ProjectCompleteness {
+  hasReadme: boolean
+  hasSourceCode: boolean
+  hasConfig: boolean
+  hasTests: boolean
+  hasLicense: boolean
+  hasDeployment: boolean
+  percentage: number
+}
+
+export interface AdvancedSignals {
+  personality: RepoPersonality
+  completeness: ProjectCompleteness
+  onboardingDifficulty: OnboardingLevel
+  abandonmentRisk: RiskLevel
+  configComplexity: { count: number; level: OnboardingLevel }
+  docCoverage: { percentage: number; level: string }
+  contributorFriendliness: OnboardingLevel
+  securityMaturity: MaturityLevel
+  deploymentReadiness: OnboardingLevel
+  learningValue: number
+  readmeCodeConsistency: number
+  techDebtIndicators: { total: number; level: 'Low' | 'Medium' | 'High' }
+  maintainabilityIndex: 'Excellent' | 'Good' | 'Moderate' | 'Poor'
 }
 
 export interface HealthMetrics {
@@ -124,6 +192,7 @@ export interface AnalysisReport {
   error?: string
   analysisSource?: 'github-api' | 'local-clone'
   outlierAlerts?: string[]
+  advancedSignals?: AdvancedSignals
 }
 
 export interface QualityScores {

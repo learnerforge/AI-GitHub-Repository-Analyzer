@@ -50,10 +50,12 @@ async function fetchFileTree(
   return []
 }
 
-function extractDependencyFiles(
+async function extractDependencyFiles(
+  owner: string,
+  repo: string,
   tree: FileNode[],
   files: Record<string, string> = {}
-): Record<string, string> {
+): Promise<Record<string, string>> {
   const depFiles = new Set([
     'package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
     'requirements.txt', 'Pipfile', 'Pipfile.lock', 'pyproject.toml',
@@ -64,13 +66,25 @@ function extractDependencyFiles(
     'tsconfig.json', '.eslintrc', 'Makefile',
   ])
 
+  const fetchContent = async (path: string): Promise<string | null> => {
+    try {
+      const res = await octokit.rest.repos.getContent({ owner, repo, path })
+      if (!Array.isArray(res.data) && 'content' in res.data) {
+        return Buffer.from(res.data.content, 'base64').toString('utf-8').slice(0, 5000)
+      }
+    } catch {}
+    return null
+  }
+
   for (const node of tree) {
     if (node.type === 'blob') {
       if (depFiles.has(node.name)) {
         files[node.path] = node.name
+        const content = await fetchContent(node.path)
+        if (content) files[node.path] = content
       }
     } else if (node.children) {
-      extractDependencyFiles(node.children, files)
+      await extractDependencyFiles(owner, repo, node.children, files)
     }
   }
   return files
@@ -122,6 +136,6 @@ export async function fetchRepoInfo(url: string): Promise<RepoInfo> {
     })),
     readmeContent,
     fileTree: tree,
-    dependencyFiles: extractDependencyFiles(tree),
+    dependencyFiles: await extractDependencyFiles(owner, name, tree),
   }
 }

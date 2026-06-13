@@ -9,7 +9,6 @@ const CHECKPOINT_DIR = path.join(process.cwd(), 'model-checkpoints')
 const LOG_DIR = path.join(process.cwd(), 'training-logs')
 
 const WEIGHT_DELTAS = [0.05, -0.05, 0.1, -0.1]
-const BONUS_DELTAS = [5, -5, 10, -10]
 
 interface State {
   repoStars: number; repoForks: number; fileCount: number
@@ -17,6 +16,7 @@ interface State {
   hasTests: boolean; hasCI: boolean
   readmeScore: number; docsSectionCount: number
   hasApiDocs: boolean; hasLicense: boolean
+  lastCommitDays: number; hasDockerfile: boolean; hasContributing: boolean
 }
 
 interface Experience {
@@ -46,6 +46,9 @@ function getStateKey(s: State): string {
     s.docsSectionCount,
     s.hasApiDocs,
     s.hasLicense,
+    quantize(s.lastCommitDays, 90),
+    s.hasDockerfile,
+    s.hasContributing,
   ].join(':')
 }
 
@@ -67,7 +70,18 @@ function extractState(report: any): State {
     docsSectionCount: (report.docsQuality?.sectionCoverage || []).filter((s: any) => s.present).length,
     hasApiDocs: report.docsQuality?.hasApiDocs || false,
     hasLicense: report.docsQuality?.hasLicense || false,
+    lastCommitDays: report.health?.lastCommitDays ?? 30,
+    hasDockerfile: report.health?.hasDockerfile || (report.fileTree ? checkFileTreeForDocker(report.fileTree) : false),
+    hasContributing: report.docsQuality?.hasContributing || false,
   }
+}
+
+function checkFileTreeForDocker(tree: any[]): boolean {
+  for (const node of tree) {
+    if (node.type === 'blob' && ['Dockerfile', 'docker-compose.yml', 'docker-compose.yaml'].includes(node.name)) return true
+    if (node.children && checkFileTreeForDocker(node.children)) return true
+  }
+  return false
 }
 
 function reconstructRepoInfo(report: any, fileName: string): RepoInfo | null {
@@ -120,7 +134,7 @@ function validateExperience(exp: Experience): string[] {
   if (exp.reward < -1 || exp.reward > 1) issues.push('reward out of [-1, 1]')
   if (isNaN(exp.reward)) issues.push('reward is NaN')
   if (!Number.isFinite(exp.reward)) issues.push('reward is infinite')
-  const validParams = ['codeQualityWeight', 'docsWeight', 'maintainabilityWeight', 'communityWeight', 'securityWeight', 'complexityBonus', 'readmeBonus']
+  const validParams = ['codeQualityWeight', 'docsWeight', 'maintainabilityWeight', 'communityWeight', 'securityWeight']
   if (!validParams.includes(exp.action.paramName)) issues.push('unknown paramName')
   return issues
 }
@@ -135,8 +149,6 @@ function computeReward(score: number, report: any, action: { paramName: string; 
   if (action.paramName === 'codeQualityWeight' && state.hasTests) bonus += 0.2
   if (action.paramName === 'securityWeight' && (state.hasCI || state.hasTests)) bonus += 0.15
   if (action.paramName === 'maintainabilityWeight' && state.fileCount < 100) bonus += 0.15
-  if (action.paramName === 'readmeBonus' && state.hasLicense) bonus += 0.15
-  if (action.paramName === 'readmeBonus' && state.docsSectionCount < 4) bonus -= 0.1
   if (action.delta > 0) bonus += 0.05
   else bonus -= 0.05
   return Math.max(-1, Math.min(1, base + bonus))
@@ -209,7 +221,7 @@ function generateExperiences(
   const defaultParams = getDefaultParams()
   const paramNames = [
     'codeQualityWeight', 'docsWeight', 'maintainabilityWeight',
-    'communityWeight', 'securityWeight', 'complexityBonus', 'readmeBonus',
+    'communityWeight', 'securityWeight',
   ] as const
 
   for (const { report, file } of reports) {
@@ -223,15 +235,10 @@ function generateExperiences(
     const baselineScore = computeQualityScore(report, defaultParams)
 
     for (const paramName of paramNames) {
-      const deltas = (paramName === 'complexityBonus' || paramName === 'readmeBonus') ? BONUS_DELTAS : WEIGHT_DELTAS
-      for (const delta of deltas) {
+      for (const delta of WEIGHT_DELTAS) {
         const trialParams: ScorerParams = { ...defaultParams }
         let newVal = (trialParams[paramName as keyof ScorerParams] as number) + delta
-        if (paramName === 'complexityBonus' || paramName === 'readmeBonus') {
-          newVal = Math.max(0, Math.min(50, newVal))
-        } else {
-          newVal = Math.max(0, Math.min(1, newVal))
-        }
+        newVal = Math.max(0, Math.min(1, newVal))
         ;(trialParams as any)[paramName] = newVal
 
         const trialScore = computeQualityScore(report, trialParams)

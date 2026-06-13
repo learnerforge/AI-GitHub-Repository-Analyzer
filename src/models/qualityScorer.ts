@@ -20,6 +20,33 @@ const DEFAULT_PARAMS: ScorerParams = {
   readmeBonus: 10,
 }
 
+const DOC_REPO_TOPICS = new Set([
+  'education', 'learning', 'books', 'documentation', 'tutorial', 'reference',
+  'awesome-list', 'cheatsheet', 'study', 'curated', 'resources',
+])
+
+function isDocRepo(repo: RepoInfo, complexity: ComplexityMetrics): boolean {
+  if (complexity.fileCount > 50) return false
+  if (repo.stars < 1000) return false
+  const topics = (repo as any).topics ?? []
+  if (topics.some((t: string) => DOC_REPO_TOPICS.has(t.toLowerCase().replace(/[_-]/g, '')))) return true
+  const readme = (repo as any).readmeContent ?? ''
+  if (readme.length < 200) return false
+  const headMatch = readme.match(/^#\s+(.+)/m)
+  const title = headMatch?.[1] ?? ''
+  const docKeywords = ['book', 'guide', 'tutorial', 'list', 'curated', 'awesome', 'learn', 'study', 'reference', 'resource', 'roadmap', 'primer', 'interview', 'university']
+  if (docKeywords.some(k => title.toLowerCase().includes(k))) return true
+  const headingCount = readme.match(/^## /gm)?.length ?? 0
+  if (headingCount >= 8) return true
+  const knownEduRepos = ['developer-roadmap', 'free-programming-books', 'public-apis', 'system-design-primer', 'coding-interview-university']
+  if (knownEduRepos.some(n => repo.name?.includes(n))) return true
+  return false
+}
+
+function isLargeRepo(repo: RepoInfo, complexity: ComplexityMetrics): boolean {
+  return complexity.fileCount > 10000 || complexity.totalLines > 500000
+}
+
 export function computeQualityScores(
   repo: RepoInfo,
   complexity: ComplexityMetrics,
@@ -27,18 +54,41 @@ export function computeQualityScores(
   health: HealthMetrics,
   params: ScorerParams = DEFAULT_PARAMS
 ): QualityScores {
-  const codeQuality = computeCodeQuality(repo, complexity, params)
-  const documentation = computeDocumentationScore(docsQuality, params)
-  const maintainability = computeMaintainability(repo, complexity, params)
-  const communityHealth = computeCommunityScore(health, params)
+  const docRepo = isDocRepo(repo, complexity)
+  const largeRepo = isLargeRepo(repo, complexity)
+
+  const codeQuality = computeCodeQuality(repo, complexity, params, docRepo, largeRepo)
+  const documentation = computeDocumentationScore(docsQuality, params, docRepo)
+  const maintainability = computeMaintainability(repo, complexity, params, largeRepo)
+  const communityHealth = computeCommunityScore(health, params, docRepo)
   const security = computeSecurityScore(repo, params)
 
+  let cqw = params.codeQualityWeight
+  let dw = params.docsWeight
+  let mw = params.maintainabilityWeight
+  let cow = params.communityWeight
+  let sw = params.securityWeight
+
+  if (docRepo) {
+    cqw = 0.05
+    dw = 0.35
+    mw = 0.10
+    cow = 0.40
+    sw = 0.10
+  } else if (largeRepo) {
+    cqw = 0.20
+    dw = 0.15
+    mw = 0.25
+    cow = 0.25
+    sw = 0.15
+  }
+
   const overall = Math.round(
-    codeQuality * params.codeQualityWeight +
-    documentation * params.docsWeight +
-    maintainability * params.maintainabilityWeight +
-    communityHealth * params.communityWeight +
-    security * params.securityWeight
+    codeQuality * cqw +
+    documentation * dw +
+    maintainability * mw +
+    communityHealth * cow +
+    security * sw
   )
 
   return {
@@ -51,16 +101,29 @@ export function computeQualityScores(
   }
 }
 
-function computeCodeQuality(repo: RepoInfo, complexity: ComplexityMetrics, params: ScorerParams): number {
+function computeCodeQuality(
+  repo: RepoInfo, complexity: ComplexityMetrics, params: ScorerParams,
+  docRepo: boolean, largeRepo: boolean
+): number {
   let score = 50
+
+  if (docRepo) {
+    score = 70
+    if (complexity.fileCount > 0) score += 10
+    if (complexity.fileCount > 10) score += 10
+    return Math.min(100, score)
+  }
 
   const langCount = Object.keys(repo.languages).length
   if (langCount <= 3) score += 15
   else if (langCount <= 5) score += 10
-  else score += 5
+  else if (langCount <= 8) score += 5
+  else score += 3
 
   if (complexity.fileCount > 0) {
-    if (complexity.fileCount < 30) score += 10
+    if (largeRepo) {
+      score += 5
+    } else if (complexity.fileCount < 30) score += 10
     else if (complexity.fileCount < 100) score += 5
     else score += 2
   }
@@ -75,7 +138,9 @@ function computeCodeQuality(repo: RepoInfo, complexity: ComplexityMetrics, param
   return score
 }
 
-function computeDocumentationScore(docs: DocsQuality, params: ScorerParams): number {
+function computeDocumentationScore(
+  docs: DocsQuality, params: ScorerParams, docRepo: boolean
+): number {
   let score = 30
 
   if (docs.hasReadme) {
@@ -94,18 +159,26 @@ function computeDocumentationScore(docs: DocsQuality, params: ScorerParams): num
   const sectionCount = docs.sectionCoverage.filter(s => s.present).length
   score += Math.min(10, sectionCount * 2)
 
+  if (docRepo) score = Math.max(score, 70)
+
   return score
 }
 
-function computeMaintainability(repo: RepoInfo, complexity: ComplexityMetrics, params: ScorerParams): number {
+function computeMaintainability(
+  repo: RepoInfo, complexity: ComplexityMetrics, params: ScorerParams,
+  largeRepo: boolean
+): number {
   let score = 50
 
   const langCount = Object.keys(repo.languages).length
   if (langCount <= 2) score += 15
   else if (langCount <= 4) score += 10
   else if (langCount <= 6) score += 5
+  else score += 3
 
-  if (complexity.fileCount < 50) score += 10
+  if (largeRepo) {
+    score += 10
+  } else if (complexity.fileCount < 50) score += 10
   else if (complexity.fileCount < 200) score += 5
   else score -= 5
 
@@ -115,15 +188,21 @@ function computeMaintainability(repo: RepoInfo, complexity: ComplexityMetrics, p
 
   if (complexity.totalLines < 10000) score += 10
   else if (complexity.totalLines < 50000) score += 5
+  else if (largeRepo) score += 3
   else score += 0
 
   return score
 }
 
-function computeCommunityScore(health: HealthMetrics, params: ScorerParams): number {
+function computeCommunityScore(
+  health: HealthMetrics, params: ScorerParams, docRepo: boolean
+): number {
   let score = 20
 
-  if (health.stars > 0) score += Math.min(30, Math.round(Math.log2(health.stars) * 3))
+  let starMax = 30
+  if (docRepo) starMax = 40
+  if (health.stars > 0) score += Math.min(starMax, Math.round(Math.log2(health.stars) * 3))
+
   if (health.hasRecentActivity) score += 20
   else score += 5
 
@@ -138,7 +217,7 @@ function computeCommunityScore(health: HealthMetrics, params: ScorerParams): num
 function computeSecurityScore(repo: RepoInfo, params: ScorerParams): number {
   let score = 30
 
-  const hasLockFile = Object.values(repo.dependencyFiles).some(f =>
+  const hasLockFile = Object.keys(repo.dependencyFiles).some(f =>
     ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'Gemfile.lock', 'Cargo.lock'].includes(f)
   )
   if (hasLockFile) score += 15
