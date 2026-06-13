@@ -11,7 +11,8 @@
     "train": "tsx workers/trainingWorker.ts",
     "train:compact": "tsx workers/compactTrain.ts",
     "analyze:local": "tsx workers/localAnalyzer.ts",
-    "analyze:batch": "tsx workers/batchAnalyzer.ts"
+    "analyze:batch": "tsx workers/batchAnalyzer.ts",
+    "analyze:parallel": "tsx workers/parallelBatch.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
