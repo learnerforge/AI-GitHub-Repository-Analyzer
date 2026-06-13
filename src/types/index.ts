@@ -146,6 +146,7 @@ export interface AIAnalysisInput {
   stars?: number
   forks?: number
   contributorCount?: number
+  pushedAt?: string
 }
 
 export interface AIAnalysisResult {

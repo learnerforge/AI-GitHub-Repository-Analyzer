@@ -1,0 +1,16 @@
+https://github.com/BurntSushi/ripgrep
+https://github.com/comfyanonymous/ComfyUI
+https://github.com/flet-dev/flet
+https://github.com/ggerganov/llama.cpp
+https://github.com/httpie/cli
+https://github.com/jesseduffield/lazygit
+https://github.com/langflow-ai/langflow
+https://github.com/muesli/duf
+https://github.com/oobabooga/text-generation-webui
+https://github.com/open-webui/open-webui
+https://github.com/sharkdp/bat
+https://github.com/sharkdp/fd
+https://github.com/simonw/llm
+https://github.com/tiangolo/fastapi
+https://github.com/torvalds/linux
+https://github.com/yt-dlp/yt-dlp
