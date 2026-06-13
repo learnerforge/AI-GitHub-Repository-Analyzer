@@ -1,4 +1,4 @@
-import { RepoInfo, AnalysisReport, ComplexityMetrics, DocsQuality, HealthMetrics, QualityScores, AIAnalysisInput } from '@/types'
+import { RepoInfo, AnalysisReport, ComplexityMetrics, DocsQuality, HealthMetrics, QualityScores, AIAnalysisInput, FileNode } from '@/types'
 import { createAIProvider, AIProvider } from './ai'
 
 let aiProvider: AIProvider | null = null
@@ -10,27 +10,47 @@ function getAIProvider(): AIProvider {
   return aiProvider
 }
 
-export function setAIProvider(provider: AIProvider): void {
-  aiProvider = provider
+function findInTree(nodes: FileNode[], predicate: (n: FileNode) => boolean): boolean {
+  for (const n of nodes) {
+    if (predicate(n)) return true
+    if (n.children && findInTree(n.children, predicate)) return true
+  }
+  return false
+}
+
+function computeMaxDepth(nodes: FileNode[], depth = 0): number {
+  let maxDepth = depth
+  for (const node of nodes) {
+    if (node.type === 'tree' && node.children) {
+      maxDepth = Math.max(maxDepth, computeMaxDepth(node.children, depth + 1))
+    }
+  }
+  return maxDepth
 }
 
 function computeComplexity(repo: RepoInfo): ComplexityMetrics {
   let totalLines = 0
   let fileCount = 0
+  let testFileCount = 0
+  let apiEndpointCount = 0
+  let fixmeCount = 0
+  let todoCount = 0
   const langCounts: Record<string, number> = {}
   const langLines: Record<string, number> = {}
 
-  function countFiles(nodes: typeof repo.fileTree, depth = 0) {
+  const walkAll = (nodes: typeof repo.fileTree) => {
     for (const node of nodes) {
       if (node.type === 'blob') {
         fileCount++
+        if (node.name.match(/\.(test|spec)\.\w+$/) || node.name.match(/^test_.*\.\w+$/)) testFileCount++
+        if (node.name.match(/\.(api|route|controller|endpoint)\.\w+$/i) || node.name.match(/^api\.\w+$/i)) apiEndpointCount++
       }
-      if (node.children) {
-        countFiles(node.children, depth + 1)
-      }
+      if (node.children) walkAll(node.children)
     }
   }
-  countFiles(repo.fileTree)
+  walkAll(repo.fileTree)
+
+  const deepestNesting = computeMaxDepth(repo.fileTree)
 
   const totalBytes = Object.values(repo.languages).reduce((a, b) => a + b, 0) || 1
   for (const [lang, bytes] of Object.entries(repo.languages)) {
@@ -50,14 +70,17 @@ function computeComplexity(repo: RepoInfo): ComplexityMetrics {
     }))
 
   const averageFileSize = fileCount > 0 ? Math.round(totalLines / fileCount) : 0
-  const overall = Math.min(100, Math.round(
-    (repo.languages && Object.keys(repo.languages).length > 0 ? 30 : 0) +
-    (fileCount < 50 ? 20 : fileCount < 200 ? 10 : 5) +
-    (averageFileSize < 100 ? 20 : averageFileSize < 300 ? 10 : 5) +
-    (totalLines < 10000 ? 30 : totalLines < 50000 ? 20 : 10)
-  ))
 
-  return { overall, fileCount, totalLines, averageFileSize, deepestNesting: 0, languageBreakdown }
+  const fileCountScore = fileCount === 0 ? 0 : fileCount < 20 ? 20 : Math.max(5, Math.round(25 - Math.log2(fileCount / 20) * 5))
+  const fileSizeScore = averageFileSize === 0 ? 0 : averageFileSize < 50 ? 20 : Math.max(5, Math.round(22 - Math.log2(averageFileSize / 50) * 4))
+  const linesScore = totalLines === 0 ? 0 : totalLines < 3000 ? 30 : Math.max(10, Math.round(35 - Math.log2(totalLines / 3000) * 5))
+  const langDiversityScore = repo.languages && Object.keys(repo.languages).length > 0 ? Math.min(30, Object.keys(repo.languages).length * 6) : 0
+
+  const overall = Math.min(100, Math.round(fileCountScore + fileSizeScore + linesScore + langDiversityScore))
+
+  const testCoverageEstimate = fileCount > 0 ? Math.round(testFileCount / fileCount * 100) : 0
+
+  return { overall, fileCount, totalLines, averageFileSize, deepestNesting, languageBreakdown, testFileCount, totalFileCount: fileCount, testCoverageEstimate, apiEndpointCount, techDebtScore: 0, fixmeCount, todoCount }
 }
 
 function computeDocsQuality(repo: RepoInfo): DocsQuality {
@@ -110,22 +133,38 @@ function computeDocsQuality(repo: RepoInfo): DocsQuality {
   }
 }
 
+function computeBusFactor(contributors: { login: string; contributions: number }[]): number {
+  if (contributors.length === 0) return 1
+  const sorted = [...contributors].sort((a, b) => b.contributions - a.contributions)
+  const total = sorted.reduce((s, c) => s + c.contributions, 0)
+  let cumulative = 0
+  for (let i = 0; i < sorted.length; i++) {
+    cumulative += sorted[i].contributions
+    if (cumulative > total * 0.5) return Math.max(1, i + 1)
+  }
+  return contributors.length
+}
+
 function computeHealth(repo: RepoInfo): HealthMetrics {
   const lastCommitDays = repo.pushedAt
     ? Math.round((Date.now() - new Date(repo.pushedAt).getTime()) / 86400000)
     : 999
 
   const contributorCount = repo.contributors.length
-  const busFactor = Math.min(contributorCount, 20)
+  const busFactor = computeBusFactor(repo.contributors)
   const issuesPerStar = repo.stars > 0 ? repo.openIssues / repo.stars : repo.openIssues
 
-  const overall = Math.min(100, Math.round(
-    (repo.stars > 100 ? 25 : repo.stars > 10 ? 15 : repo.stars > 0 ? 5 : 0) +
-    (lastCommitDays < 30 ? 25 : lastCommitDays < 90 ? 15 : lastCommitDays < 365 ? 5 : 0) +
-    (contributorCount > 10 ? 20 : contributorCount > 3 ? 10 : 5) +
-    (issuesPerStar < 0.5 ? 15 : issuesPerStar < 2 ? 10 : 5) +
-    (repo.forks > 10 ? 15 : repo.forks > 0 ? 10 : 0)
-  ))
+  const isLocalOnly = repo.stars === 0 && repo.forks === 0 && contributorCount === 0
+
+  const starScore = repo.stars === 0 ? 0 : Math.min(25, Math.round(Math.log2(Math.max(1, repo.stars)) * 2.2))
+  const forkScore = repo.forks === 0 ? 0 : Math.min(15, Math.round(Math.log2(Math.max(1, repo.forks)) * 2))
+  const activityScore = lastCommitDays < 30 ? 25 : lastCommitDays < 90 ? 20 : lastCommitDays < 365 ? 10 : lastCommitDays < 730 ? 5 : 0
+  const contributorScore = Math.min(20, Math.round(Math.log2(Math.max(1, contributorCount)) * 4))
+  const issueScore = issuesPerStar < 0.1 ? 15 : issuesPerStar < 0.5 ? 12 : issuesPerStar < 2 ? 8 : issuesPerStar < 10 ? 4 : 2
+
+  const overall = isLocalOnly
+    ? Math.min(30, Math.round(activityScore + issueScore))
+    : Math.min(100, Math.round(starScore + activityScore + contributorScore + issueScore + forkScore))
 
   return {
     overall,
@@ -138,25 +177,76 @@ function computeHealth(repo: RepoInfo): HealthMetrics {
     contributorCount,
     busFactor,
     releaseCount: 0,
-    hasCI: repo.fileTree.some(f => f.path.includes('.github/workflows')),
-    hasTests: repo.fileTree.some(f =>
-      f.name === 'tests' || f.name === '__tests__' || f.name === 'test' || f.name.endsWith('.test.ts') || f.name.endsWith('.spec.ts')
+    hasCI: findInTree(repo.fileTree, n => n.path.includes('.github/workflows') || n.path === '.github/workflows'),
+    hasTests: findInTree(repo.fileTree, n =>
+      n.type === 'tree' && ['tests', '__tests__', 'test', 'spec', '__test__'].includes(n.name) ||
+      n.type === 'blob' && (!!n.name.match(/\.(test|spec)\.\w+$/) || !!n.name.match(/^test_.*\.\w+$/))
     ),
   }
 }
 
 export async function analyzeRepository(repo: RepoInfo): Promise<AnalysisReport> {
+  // Outlier detection alerts
+  const outlierAlerts: string[] = []
+  if (repo.fileTree.length > 0) {
+    let totalBlobs = 0
+    const walk = (nodes: typeof repo.fileTree) => { for (const n of nodes) { if (n.type === 'blob') totalBlobs++; if (n.children) walk(n.children) } }
+    walk(repo.fileTree)
+    if (totalBlobs > 10000) outlierAlerts.push(`Extremely large repo: ${totalBlobs} files — complexity metrics may be less accurate`)
+    if (totalBlobs === 0) outlierAlerts.push('No source files detected — repo may be empty or contain only non-code files')
+  }
+  if (repo.readmeContent.length > 50000) outlierAlerts.push('README exceeds 50KB — analysis prioritizes first 20KB')
+  if (Object.keys(repo.languages).length > 12) outlierAlerts.push('Unusually high language diversity (>12 languages) — may indicate generated/vendor files')
+  if (repo.stars > 50000 && !repo.fileTree.some(f => f.path.includes('.github/workflows'))) {
+    outlierAlerts.push('High-profile repo (>50K stars) with no CI detected — CI check may have missed the workflow path')
+  }
+
+  // Chunking: truncate very long READMEs to prevent memory issues
+  const maxReadmeChars = 20000
+  const chunkedReadme = repo.readmeContent.length > maxReadmeChars
+    ? repo.readmeContent.slice(0, maxReadmeChars) + '\n\n<!-- README TRUNCATED — analysis uses first 20KB -->'
+    : repo.readmeContent
+
+  // Tech debt estimation from README patterns
+  const fixmeCountReadme = (repo.readmeContent.match(/\bFIXME\b/gi) || []).length
+  const todoCountReadme = (repo.readmeContent.match(/\bTODO\b/gi) || []).length
+  const techDebtScore = Math.min(100, Math.round(Math.log2(Math.max(1, fixmeCountReadme + todoCountReadme)) * 15))
+
+  // Dependency analysis: extract version info from key files
+  const depAnalysis: Record<string, string> = {}
+  for (const [name, content] of Object.entries(repo.dependencyFiles)) {
+    if (name === 'package.json') {
+      try {
+        const parsed = JSON.parse(content)
+        const deps = { ...parsed.dependencies, ...parsed.devDependencies }
+        const entries = Object.entries(deps as Record<string, string>).slice(0, 20)
+        depAnalysis['npm'] = entries.map(([pkg, ver]) => `${pkg}@${ver.replace(/[\^~]/g, '')}`).join(', ')
+      } catch {}
+    } else if (name === 'Cargo.toml') {
+      const lines = content.split('\n').filter(l => l.includes('=') && !l.trim().startsWith('['))
+      depAnalysis['cargo'] = lines.slice(0, 20).map(l => l.trim()).join(', ')
+    } else if (name === 'requirements.txt') {
+      depAnalysis['pip'] = content.split('\n').filter(l => l.includes('==') || l.includes('>=')).slice(0, 20).join(', ')
+    }
+  }
+
   const aiInput: AIAnalysisInput = {
-    readme: repo.readmeContent,
+    readme: chunkedReadme,
     languages: repo.languages,
     fileTree: repo.fileTree,
     dependencyFiles: repo.dependencyFiles,
     topics: repo.topics,
     description: repo.description,
+    stars: repo.stars,
+    forks: repo.forks,
+    contributorCount: repo.contributors.length,
   }
 
   const aiResult = await getAIProvider().analyze(aiInput)
   const complexity = computeComplexity(repo)
+  complexity.techDebtScore = techDebtScore
+  complexity.fixmeCount = fixmeCountReadme
+  complexity.todoCount = todoCountReadme
   const docsQuality = computeDocsQuality(repo)
   const health = computeHealth(repo)
 
@@ -175,6 +265,14 @@ export async function analyzeRepository(repo: RepoInfo): Promise<AnalysisReport>
     maintainability: aiResult.qualityScores.maintainability,
     communityHealth: aiResult.qualityScores.communityHealth,
     security: aiResult.qualityScores.security,
+    breakdown: {
+      'Code Quality': { score: aiResult.qualityScores.codeQuality, reason: `Based on lang diversity (${Object.keys(repo.languages).length} langs), ${complexity.fileCount} files, ${complexity.averageFileSize} avg lines/file` },
+      'Documentation': { score: aiResult.qualityScores.documentation, reason: `README score ${docsQuality.readmeScore}/100, ${docsQuality.sectionCoverage.filter(s => s.present).length}/10 sections covered` },
+      'Maintainability': { score: aiResult.qualityScores.maintainability, reason: `${complexity.languageBreakdown.length} languages, ${complexity.fileCount} files, ${complexity.deepestNesting} dir depth` },
+      'Community': { score: aiResult.qualityScores.communityHealth, reason: `${health.stars} stars, ${health.forks} forks, ${health.contributorCount} contributors` },
+      'Security': { score: aiResult.qualityScores.security, reason: `Lockfile: ${!!repo.dependencyFiles['package-lock.json'] || !!repo.dependencyFiles['Cargo.lock']}, CI: ${health.hasCI}, Tests: ${health.hasTests}` },
+      'Tech Debt': { score: 100 - techDebtScore, reason: `${fixmeCountReadme} FIXMEs, ${todoCountReadme} TODOs in README` },
+    },
   }
 
   return {
@@ -195,5 +293,9 @@ export async function analyzeRepository(repo: RepoInfo): Promise<AnalysisReport>
     fileTree: repo.fileTree,
     generatedAt: new Date().toISOString(),
     status: 'completed',
+    analysisSource: repo.stars === 0 && repo.forks === 0 && repo.contributors.length === 0 && !repo.pushedAt
+      ? 'local-clone'
+      : 'github-api',
+    outlierAlerts: outlierAlerts.length > 0 ? outlierAlerts : undefined,
   }
 }

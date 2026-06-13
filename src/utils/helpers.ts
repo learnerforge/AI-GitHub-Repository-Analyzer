@@ -23,11 +23,3 @@ export function timeAgo(dateStr: string): string {
   if (days < 365) return `${Math.floor(days / 30)} months ago`
   return `${Math.floor(days / 365)} years ago`
 }
-
-export function truncate(str: string, max: number): string {
-  return str.length > max ? str.slice(0, max) + '...' : str
-}
-
-export function classNames(...classes: (string | false | undefined | null)[]): string {
-  return classes.filter(Boolean).join(' ')
-}

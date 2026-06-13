@@ -4,7 +4,7 @@ import * as path from 'path'
 const CHECKPOINT_DIR = path.join(process.cwd(), 'model-checkpoints')
 const DATA_DIR = path.join(process.cwd(), 'training-data')
 
-export interface PersistedData {
+interface PersistedData {
   qTable: Record<string, Record<string, number>>
   experienceBuffer: {
     state: Record<string, number | boolean>
@@ -57,28 +57,17 @@ export function loadLatestQTable(): PersistedData | null {
 
   const files = fs.readdirSync(CHECKPOINT_DIR)
     .filter(f => f.startsWith('qtable-') && f.endsWith('.json'))
-    .sort()
+    .map(f => ({ name: f, mtime: fs.statSync(path.join(CHECKPOINT_DIR, f)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime)
 
   if (files.length === 0) return null
 
-  const latest = files[files.length - 1]
+  const latest = files[0].name
   try {
     const raw = fs.readFileSync(path.join(CHECKPOINT_DIR, latest), 'utf-8')
-    return JSON.parse(raw) as PersistedData
-  } catch {
-    return null
-  }
-}
-
-export function loadQTable(label: string): PersistedData | null {
-  ensureDir(CHECKPOINT_DIR)
-
-  const filepath = path.join(CHECKPOINT_DIR, `qtable-${label}.json`)
-  if (!fs.existsSync(filepath)) return null
-
-  try {
-    const raw = fs.readFileSync(filepath, 'utf-8')
-    return JSON.parse(raw) as PersistedData
+    const parsed = JSON.parse(raw)
+    if (parsed.qTable) return parsed as PersistedData
+    return { qTable: parsed, experienceBuffer: [], trainingSteps: 0, version: 1, exportedAt: '' }
   } catch {
     return null
   }

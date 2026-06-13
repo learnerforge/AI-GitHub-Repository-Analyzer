@@ -1,8 +1,7 @@
 import { TechStack, LanguageInfo, FileNode } from '@/types'
-import { getTechDatabase, getTechKeywords } from './knowledge'
-import { extractEntities, extractKeywords } from './textAnalyzer'
+import { getTechDatabase } from './knowledge'
 
-export interface DetectionResult {
+interface DetectionResult {
   name: string
   category: string
   confidence: number

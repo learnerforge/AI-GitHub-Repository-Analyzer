@@ -57,6 +57,13 @@ export interface ComplexityMetrics {
   averageFileSize: number
   deepestNesting: number
   languageBreakdown: { language: string; files: number; lines: number }[]
+  testFileCount?: number
+  totalFileCount?: number
+  testCoverageEstimate?: number
+  apiEndpointCount?: number
+  techDebtScore?: number
+  fixmeCount?: number
+  todoCount?: number
 }
 
 export interface DocsQuality {
@@ -115,6 +122,8 @@ export interface AnalysisReport {
   generatedAt: string
   status: 'pending' | 'processing' | 'completed' | 'failed'
   error?: string
+  analysisSource?: 'github-api' | 'local-clone'
+  outlierAlerts?: string[]
 }
 
 export interface QualityScores {
@@ -124,9 +133,8 @@ export interface QualityScores {
   maintainability: number
   communityHealth: number
   security: number
+  breakdown?: Record<string, { score: number; reason: string }>
 }
-
-export type AnalysisStatus = 'pending' | 'processing' | 'completed' | 'failed'
 
 export interface AIAnalysisInput {
   readme: string
@@ -135,6 +143,9 @@ export interface AIAnalysisInput {
   dependencyFiles: Record<string, string>
   topics: string[]
   description: string | null
+  stars?: number
+  forks?: number
+  contributorCount?: number
 }
 
 export interface AIAnalysisResult {

@@ -12,48 +12,49 @@ export default function ReportPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (!id || typeof id !== 'string') return
+  const fetchReport = async (reportId: string) => {
+    setLoading(true)
+    setError(null)
 
-    const fetchReport = async () => {
-      setLoading(true)
-      setError(null)
+    try {
+      const res = await fetch(`/api/report/${encodeURIComponent(reportId)}`)
+      const data = await res.json()
 
-      try {
-        const [owner, name] = id.split(':')
-        if (!owner || !name) {
-          throw new Error('Invalid report ID')
-        }
+      if (!res.ok) {
+        const [owner, name] = reportId.split(':')
+        if (!owner || !name) throw new Error('Invalid report ID')
 
-        const res = await fetch(`/api/repos/${encodeURIComponent(id)}`)
-        const data = await res.json()
-
-        if (!res.ok) {
-          throw new Error(data.error || 'Failed to load report')
-        }
+        const reposRes = await fetch(`/api/repos/${encodeURIComponent(reportId)}`)
+        const reposData = await reposRes.json()
+        if (!reposRes.ok) throw new Error(reposData.error || 'Failed to load repo')
 
         const analyzeRes = await fetch('/api/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: `https://github.com/${owner}/${name}` }),
         })
-
         const analyzeData = await analyzeRes.json()
-
-        if (!analyzeRes.ok) {
-          throw new Error(analyzeData.error || 'Analysis failed')
-        }
-
+        if (!analyzeRes.ok) throw new Error(analyzeData.error || 'Analysis failed')
         setReport(analyzeData.report)
-      } catch (err: any) {
-        setError(err.message || 'Failed to load report')
-      } finally {
-        setLoading(false)
+        return
       }
-    }
 
-    fetchReport()
+      setReport(data.report)
+    } catch (err: any) {
+      setError(err.message || 'Failed to load report')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!id || typeof id !== 'string') return
+    fetchReport(id)
   }, [id])
+
+  const handleReportUpdate = (updated: AnalysisReport) => {
+    setReport(updated)
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -76,7 +77,7 @@ export default function ReportPage() {
         </div>
       )}
 
-      {report && !loading && <AnalysisResults report={report} />}
+      {report && !loading && <AnalysisResults report={report} onReportUpdate={handleReportUpdate} />}
     </div>
   )
 }

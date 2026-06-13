@@ -11,17 +11,19 @@ interface HealthMetricsProps {
 }
 
 export default function HealthMetrics({ health }: HealthMetricsProps) {
+  const isLocalOnly = health.stars === 0 && health.forks === 0
+
   const stats = [
     {
       icon: <Star className="w-4 h-4" />,
       label: 'Stars',
-      value: formatNumber(health.stars),
+      value: isLocalOnly ? 'N/A (local)' : formatNumber(health.stars),
       color: 'text-amber-500',
     },
     {
       icon: <GitFork className="w-4 h-4" />,
       label: 'Forks',
-      value: formatNumber(health.forks),
+      value: isLocalOnly ? 'N/A (local)' : formatNumber(health.forks),
       color: 'text-blue-500',
     },
     {
@@ -72,6 +74,9 @@ export default function HealthMetrics({ health }: HealthMetricsProps) {
             />
           </div>
           <span className="text-sm font-semibold text-gray-700">{health.overall}/100</span>
+          {isLocalOnly && (
+            <p className="text-xs text-gray-400 mt-1">Community data unavailable (local clone analysis)</p>
+          )}
         </div>
       </div>
       <div className="card-body">

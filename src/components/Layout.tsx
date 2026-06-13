@@ -1,5 +1,6 @@
 import React from 'react'
-import { Github, GitBranch, BarChart3 } from 'lucide-react'
+import { Github, GitBranch, BarChart3, GitCompare } from 'lucide-react'
+import Link from 'next/link'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -21,6 +22,13 @@ export default function Layout({ children }: LayoutProps) {
               </div>
             </div>
             <nav className="flex items-center gap-4">
+              <Link
+                href="/compare"
+                className="btn-secondary text-sm"
+              >
+                <GitCompare className="w-4 h-4 mr-1.5" />
+                Compare
+              </Link>
               <a
                 href="https://github.com"
                 target="_blank"
@@ -29,13 +37,13 @@ export default function Layout({ children }: LayoutProps) {
               >
                 <Github className="w-5 h-5" />
               </a>
-              <a
+              <Link
                 href="/"
                 className="btn-secondary text-sm"
               >
                 <BarChart3 className="w-4 h-4 mr-1.5" />
                 New Analysis
-              </a>
+              </Link>
             </nav>
           </div>
         </div>

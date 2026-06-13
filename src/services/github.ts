@@ -1,7 +1,15 @@
 import { Octokit } from 'octokit'
-import { RepoInfo, Contributor, FileNode } from '@/types'
+import { RepoInfo, FileNode } from '@/types'
 
-const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN })
+function createOctokit(): Octokit {
+  const token = process.env.GITHUB_TOKEN
+  if (token && token !== 'your_github_token_here' && token.length > 10) {
+    return new Octokit({ auth: token })
+  }
+  return new Octokit()
+}
+
+const octokit = createOctokit()
 
 function parseRepoUrl(url: string): { owner: string; name: string } {
   const match = url.match(/github\.com\/([^/]+)\/([^/]+)/)

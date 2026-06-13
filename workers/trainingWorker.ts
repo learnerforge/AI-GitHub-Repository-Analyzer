@@ -20,6 +20,16 @@ interface TrainingExample {
     delta: number
   }
   reward: number
+  nextState?: {
+    repoStars: number
+    repoForks: number
+    fileCount: number
+    languageCount: number
+    readmeLength: number
+    contributorCount: number
+    hasTests: boolean
+    hasCI: boolean
+  }
   timestamp: number
 }
 
@@ -67,34 +77,43 @@ async function trainModel(): Promise<void> {
   const actionSpace = new Set<string>()
   const qValues: Record<string, Record<string, number>> = {}
 
-  for (const ex of examples) {
-    const stateKey = Object.values(ex.state).join(':')
-    const actionKey = `${ex.action.paramName}:${ex.action.delta > 0 ? '+' : ''}${ex.action.delta}`
+  const lr = 0.15
+  const df = 0.85
 
-    stateSpace.add(stateKey)
-    actionSpace.add(actionKey)
+  for (let epoch = 0; epoch < 10; epoch++) {
+    for (const ex of examples) {
+      const stateKey = Object.values(ex.state).join(':')
+      const actionKey = `${ex.action.paramName}:${ex.action.delta > 0 ? '+' : ''}${ex.action.delta}`
+      const nextStateKey = ex.nextState ? Object.values(ex.nextState).join(':') : stateKey
 
-    if (!qValues[stateKey]) qValues[stateKey] = {}
+      stateSpace.add(stateKey)
+      actionSpace.add(actionKey)
 
-    const current = qValues[stateKey][actionKey] || 0
-    const lr = 0.1
-    const df = 0.9
+      if (!qValues[stateKey]) qValues[stateKey] = {}
 
-    const nextStateKey = stateKey
-    const maxNextQ = Object.values(qValues[nextStateKey] || {}).reduce((max, v) => Math.max(max, v), 0)
-
-    qValues[stateKey][actionKey] = current + lr * (ex.reward + df * maxNextQ - current)
+      const current = qValues[stateKey][actionKey] || 0
+      const maxNextQ = Object.values(qValues[nextStateKey] || {}).reduce((max, v) => Math.max(max, v), 0)
+      qValues[stateKey][actionKey] = current + lr * (ex.reward + df * maxNextQ - current)
+    }
   }
 
   console.log(`[Training] States discovered: ${stateSpace.size}`)
   console.log(`[Training] Actions available: ${actionSpace.size}`)
 
+  const persisted = {
+    qTable: qValues,
+    experienceBuffer: [],
+    trainingSteps: stateSpace.size,
+    version: 1,
+    exportedAt: new Date().toISOString(),
+  }
+
   const checkpointPath = path.join(MODEL_EXPORT_DIR, `qtable-${Date.now()}.json`)
-  fs.writeFileSync(checkpointPath, JSON.stringify(qValues, null, 2))
+  fs.writeFileSync(checkpointPath, JSON.stringify(persisted, null, 2))
   console.log(`[Training] Q-table checkpoint saved to: ${checkpointPath}`)
 
   const latestPath = path.join(MODEL_EXPORT_DIR, 'qtable-latest.json')
-  fs.writeFileSync(latestPath, JSON.stringify(qValues, null, 2))
+  fs.writeFileSync(latestPath, JSON.stringify(persisted, null, 2))
   console.log(`[Training] Latest Q-table updated: ${latestPath}`)
 
   const avgQ = Object.values(qValues).reduce((sum, actions) => {
@@ -120,22 +139,41 @@ async function generateSyntheticData(count: number = 50): Promise<void> {
   const examples: TrainingExample[] = []
 
   for (let i = 0; i < count; i++) {
+    const state = {
+      repoStars: Math.floor(Math.random() * 5000),
+      repoForks: Math.floor(Math.random() * 500),
+      fileCount: Math.floor(Math.random() * 500) + 1,
+      languageCount: Math.floor(Math.random() * 8) + 1,
+      readmeLength: Math.floor(Math.random() * 5000) + 50,
+      contributorCount: Math.floor(Math.random() * 50),
+      hasTests: Math.random() > 0.5,
+      hasCI: Math.random() > 0.5,
+    }
+    const action = {
+      paramName: paramNames[Math.floor(Math.random() * paramNames.length)],
+      delta: deltas[Math.floor(Math.random() * deltas.length)],
+    }
+    let r = (Math.random() - 0.5) * 0.4
+    if (action.delta > 0) r += 0.1
+    else r -= 0.1
+    if (action.paramName === 'communityWeight' && state.repoStars > 1000) r += 0.2
+    if (action.paramName === 'docsWeight' && state.readmeLength > 1000) r += 0.2
+    if (action.paramName === 'codeQualityWeight' && state.hasTests) r += 0.2
+    if (action.paramName === 'securityWeight' && (state.hasTests || state.hasCI)) r += 0.15
+    if (action.paramName === 'maintainabilityWeight' && state.fileCount < 100) r += 0.15
+    const reward = Math.max(-1, Math.min(1, r))
+
+    const nextState = { ...state }
+    if (action.paramName === 'communityWeight') {
+      nextState.repoStars = Math.max(0, state.repoStars + Math.round(action.delta * 1000))
+      nextState.repoForks = Math.max(0, state.repoForks + Math.round(action.delta * 100))
+    }
+
     const example: TrainingExample = {
-      state: {
-        repoStars: Math.floor(Math.random() * 5000),
-        repoForks: Math.floor(Math.random() * 500),
-        fileCount: Math.floor(Math.random() * 500) + 1,
-        languageCount: Math.floor(Math.random() * 8) + 1,
-        readmeLength: Math.floor(Math.random() * 5000) + 50,
-        contributorCount: Math.floor(Math.random() * 50),
-        hasTests: Math.random() > 0.5,
-        hasCI: Math.random() > 0.5,
-      },
-      action: {
-        paramName: paramNames[Math.floor(Math.random() * paramNames.length)],
-        delta: deltas[Math.floor(Math.random() * deltas.length)],
-      },
-      reward: Math.random() * 2 - 1,
+      state,
+      action,
+      reward,
+      nextState,
       timestamp: Date.now(),
     }
 

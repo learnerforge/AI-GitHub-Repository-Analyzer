@@ -1,17 +1,17 @@
-export interface TechnologyPattern {
+interface TechnologyPattern {
   name: string
   category: 'language' | 'framework' | 'database' | 'tool' | 'infrastructure'
   patterns: string[]
   confidence: number
 }
 
-export interface ArchitecturePattern {
+interface ArchitecturePattern {
   name: string
   indicators: string[]
   description: string
 }
 
-export interface OnboardingTemplate {
+interface OnboardingTemplate {
   scenario: string
   sections: string[]
 }

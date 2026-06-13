@@ -1,5 +1,4 @@
 import { QualityScores, ComplexityMetrics, DocsQuality, HealthMetrics, RepoInfo } from '@/types'
-import { calculateReadability } from './textAnalyzer'
 
 export interface ScorerParams {
   codeQualityWeight: number
@@ -122,25 +121,14 @@ function computeMaintainability(repo: RepoInfo, complexity: ComplexityMetrics, p
 }
 
 function computeCommunityScore(health: HealthMetrics, params: ScorerParams): number {
-  let score = 30
+  let score = 20
 
-  if (health.stars > 1000) score = 30
-  else if (health.stars > 100) score += 20
-  else if (health.stars > 10) score += 10
-  else if (health.stars > 0) score += 5
-  else score += 0
-
+  if (health.stars > 0) score += Math.min(30, Math.round(Math.log2(health.stars) * 3))
   if (health.hasRecentActivity) score += 20
   else score += 5
 
-  if (health.contributorCount > 10) score += 15
-  else if (health.contributorCount > 3) score += 10
-  else if (health.contributorCount > 1) score += 5
-
-  if (health.forks > 50) score += 15
-  else if (health.forks > 10) score += 10
-  else if (health.forks > 0) score += 5
-
+  if (health.contributorCount > 0) score += Math.min(15, Math.round(Math.log2(health.contributorCount) * 4))
+  if (health.forks > 0) score += Math.min(15, Math.round(Math.log2(health.forks) * 2.5))
   if (health.openIssues < 10) score += 5
   else if (health.openIssues < 50) score += 2
 
@@ -148,7 +136,7 @@ function computeCommunityScore(health: HealthMetrics, params: ScorerParams): num
 }
 
 function computeSecurityScore(repo: RepoInfo, params: ScorerParams): number {
-  let score = 60
+  let score = 30
 
   const hasLockFile = Object.values(repo.dependencyFiles).some(f =>
     ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'Gemfile.lock', 'Cargo.lock'].includes(f)

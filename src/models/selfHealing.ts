@@ -1,11 +1,11 @@
-export interface ValidationResult {
+interface ValidationResult {
   valid: boolean
   issues: string[]
   corrections: Record<string, any>
   confidence: number
 }
 
-export interface ComponentOutput {
+interface ComponentOutput {
   component: string
   data: any
   raw: any
@@ -95,6 +95,44 @@ export class SelfHealingLayer {
           corrections.onboardingGuide = 'No onboarding guide could be generated automatically.'
         }
         break
+
+      case 'docs':
+        if (!data || typeof data !== 'object') {
+          issues.push('Docs data is missing')
+          corrections.docs = { readmeScore: 0, hasReadme: false, readmeLength: 0, hasContributing: false, hasCodeOfConduct: false, hasLicense: false, hasChangelog: false, hasApiDocs: false, hasWiki: false, sectionCoverage: [], suggestions: [] }
+        } else {
+          if (typeof data.readmeScore !== 'number' || data.readmeScore < 0 || data.readmeScore > 100) {
+            issues.push('readmeScore out of range')
+            corrections['docs.readmeScore'] = 0
+          }
+          if (!Array.isArray(data.sectionCoverage)) {
+            issues.push('sectionCoverage missing')
+            corrections['docs.sectionCoverage'] = []
+          }
+          if (typeof data.hasReadme !== 'boolean') {
+            issues.push('hasReadme missing')
+            corrections['docs.hasReadme'] = false
+          }
+        }
+        break
+
+      case 'rlState':
+        if (!data || typeof data !== 'object') {
+          issues.push('RL state is missing')
+          corrections.rlState = { repoStars: 0, repoForks: 0, fileCount: 0, languageCount: 1, readmeLength: 0, contributorCount: 0, hasTests: false, hasCI: false, readmeScore: 0, docsSectionCount: 0, hasApiDocs: false, hasLicense: false }
+        } else {
+          const numericFields = ['repoStars', 'repoForks', 'fileCount', 'languageCount', 'readmeLength', 'contributorCount', 'readmeScore', 'docsSectionCount']
+          for (const k of numericFields) {
+            if (typeof data[k] !== 'number' || data[k] < 0 || (k === 'docsSectionCount' && (data[k] > 10 || !Number.isInteger(data[k])))) {
+              issues.push(`rlState.${k} invalid`)
+            }
+          }
+          const boolFields = ['hasTests', 'hasCI', 'hasApiDocs', 'hasLicense']
+          for (const k of boolFields) {
+            if (typeof data[k] !== 'boolean') issues.push(`rlState.${k} invalid`)
+          }
+        }
+        break
     }
 
     const severity = issues.length === 0 ? 0 :
@@ -109,6 +147,17 @@ export class SelfHealingLayer {
       corrections,
       confidence,
     }
+  }
+
+  autoTuneThresholds(): { adjusted: boolean; reason: string } {
+    const health = this.getSystemHealth()
+    const highErrorComps = Object.entries(health.components)
+      .filter(([, h]: [string, any]) => h.errorRate > 0.3)
+      .map(([c]) => c)
+    if (highErrorComps.length > 3 && health.overallHealth === 'unhealthy') {
+      return { adjusted: true, reason: `degraded components: ${highErrorComps.join(', ')}` }
+    }
+    return { adjusted: false, reason: 'within normal thresholds' }
   }
 
   healOutput(

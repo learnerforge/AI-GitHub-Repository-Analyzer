@@ -1,7 +1,7 @@
 import { AIAnalysisInput, AIAnalysisResult, TechStack, CodeSmell, QualityScores } from '@/types'
 import { AIProvider } from '@/services/ai'
 import { generateSummary } from './summarizer'
-import { detectTechnologies, detectDevCommands } from './technologies'
+import { detectTechnologies } from './technologies'
 import { analyzeArchitecture, ArchitectureAnalysis } from './architecture'
 import { detectCodeSmells, SmellDetectionInput } from './smellDetector'
 import { computeQualityScores } from './qualityScorer'
@@ -34,29 +34,34 @@ export class LocalAIProvider implements AIProvider {
   }
 
   async analyze(input: AIAnalysisInput): Promise<AIAnalysisResult> {
+    if (!input) throw new Error('AIAnalysisInput is required')
+    if (input.readme && input.readme.length > 100000) {
+      input.readme = input.readme.slice(0, 100000) + '\n\n<!-- TRUNCATED at 100KB -->'
+    }
     this.selfHealing.resetForNewAnalysis()
     const startTime = Date.now()
 
-    const summaryResult = this.runWithHealing('summary', () =>
-      this.generateSummaryInternal(input)
-    )
+    // Cache repeated computations once
+    const hasTests = this.detectHasTests(input.fileTree)
+    const hasCI = this.detectHasCI(input.fileTree)
+    const langCount = Object.keys(input.languages).length
+    const totalBytes = Object.values(input.languages).reduce((a, b) => a + b, 0)
 
-    const techStack = this.runWithHealing('techStack', () =>
-      this.detectTechStackInternal(input)
-    )
-
-    const architectureResult = this.runWithHealing('architecture', () =>
-      this.analyzeArchitectureInternal(input)
-    )
+    // Run independent analysis steps in parallel
+    const [summaryResult, techStack, architectureResult] = await Promise.all([
+      this.runWithHealing('summary', () => this.generateSummaryInternal(input)),
+      this.runWithHealing('techStack', () => this.detectTechStackInternal(input, totalBytes)),
+      this.runWithHealing('architecture', () => this.analyzeArchitectureInternal(input)),
+    ])
 
     const smellInput: SmellDetectionInput = {
       fileTree: input.fileTree,
       readmeContent: input.readme || '',
       languages: input.languages,
       dependencyFiles: input.dependencyFiles,
-      hasTests: this.detectHasTests(input.fileTree),
-      hasCI: this.detectHasCI(input.fileTree),
-      contributorCount: 0,
+      hasTests,
+      hasCI,
+      contributorCount: input.contributorCount ?? 0,
     }
 
     const codeSmells = this.runWithHealing('codeSmells', () =>
@@ -64,7 +69,7 @@ export class LocalAIProvider implements AIProvider {
     )
 
     const suggestions = this.runWithHealing('suggestions', () =>
-      this.generateSuggestionsInternal(codeSmells, techStack)
+      this.generateSuggestionsInternal(codeSmells, techStack, input.fileTree)
     )
 
     const onboardingGuide = this.runWithHealing('onboardingGuide', () =>
@@ -72,7 +77,7 @@ export class LocalAIProvider implements AIProvider {
     )
 
     const qualityScores = this.runWithHealing('qualityScores', () =>
-      this.scoreQualityInternal(input, techStack, codeSmells)
+      this.scoreQualityInternal(input, techStack, codeSmells, hasTests, hasCI, langCount, totalBytes)
     )
 
     if (this.options.useReinforcementLearning) {
@@ -138,7 +143,7 @@ export class LocalAIProvider implements AIProvider {
     return result.summary || textToSummarize.slice(0, 500)
   }
 
-  private detectTechStackInternal(input: AIAnalysisInput): TechStack {
+  private detectTechStackInternal(input: AIAnalysisInput, totalBytes?: number): TechStack {
     const techStack = detectTechnologies(
       input.languages,
       input.fileTree,
@@ -148,18 +153,17 @@ export class LocalAIProvider implements AIProvider {
     )
 
     const languageNames = Object.keys(input.languages)
+    const bytesTotal = totalBytes ?? Object.values(input.languages).reduce((a, b) => a + b, 0)
     for (const lang of languageNames) {
       if (!techStack.languages.find(l => l.name === lang)) {
         const bytes = input.languages[lang]
-        const totalBytes = Object.values(input.languages).reduce((a, b) => a + b, 0)
         techStack.languages.push({
           name: lang,
-          percentage: totalBytes > 0 ? Math.round((bytes / totalBytes) * 1000) / 10 : 0,
+          percentage: bytesTotal > 0 ? Math.round((bytes / bytesTotal) * 1000) / 10 : 0,
           bytes,
         })
       }
     }
-
     techStack.languages.sort((a, b) => b.percentage - a.percentage)
 
     return techStack
@@ -187,7 +191,7 @@ export class LocalAIProvider implements AIProvider {
     ) || false
   }
 
-  private generateSuggestionsInternal(codeSmells: CodeSmell[], techStack: TechStack): string[] {
+  private generateSuggestionsInternal(codeSmells: CodeSmell[], techStack: TechStack, fileTree: any[]): string[] {
     const suggestions: string[] = []
 
     const hasCriticalSmell = codeSmells.some(s => s.severity === 'critical')
@@ -205,7 +209,7 @@ export class LocalAIProvider implements AIProvider {
         '. Addressing these will improve maintainability.')
     }
 
-    if (!this.detectHasTests([] as any)) {
+    if (!this.detectHasTests(fileTree)) {
       suggestions.push('Add automated tests to improve code reliability and make contributions safer.')
     }
 
@@ -269,12 +273,16 @@ export class LocalAIProvider implements AIProvider {
   private scoreQualityInternal(
     input: AIAnalysisInput,
     techStack: TechStack,
-    codeSmells: CodeSmell[]
+    codeSmells: CodeSmell[],
+    hasTests: boolean,
+    hasCI: boolean,
+    langCount: number,
+    totalBytes: number
   ): QualityScores {
     const complexity = {
       overall: 0,
       fileCount: countFiles(input.fileTree),
-      totalLines: Object.values(input.languages).reduce((a, b) => a + b, 0) / 50,
+      totalLines: totalBytes / 50,
       averageFileSize: 0,
       deepestNesting: 0,
       languageBreakdown: [],
@@ -282,63 +290,95 @@ export class LocalAIProvider implements AIProvider {
     complexity.averageFileSize = complexity.fileCount > 0
       ? Math.round(complexity.totalLines / complexity.fileCount) : 0
     complexity.overall = Math.min(100, Math.round(
-      (Object.keys(input.languages).length === 0 ? 0 : 20) +
+      (langCount === 0 ? 0 : 20) +
       (complexity.fileCount < 50 ? 25 : complexity.fileCount < 200 ? 15 : 5) +
       (complexity.averageFileSize < 100 ? 25 : complexity.averageFileSize < 300 ? 15 : 5) +
       (complexity.totalLines < 10000 ? 30 : complexity.totalLines < 50000 ? 20 : 10)
     ))
 
+    const readmeText = input.readme || ''
+    const readmeLower = readmeText.toLowerCase()
+    const sections = [
+      { section: 'Description', present: readmeText.length > 50 },
+      { section: 'Installation', present: readmeLower.includes('install') },
+      { section: 'Usage', present: readmeLower.includes('usage') || readmeLower.includes('example') },
+      { section: 'API Documentation', present: readmeLower.includes('api') },
+      { section: 'Configuration', present: readmeLower.includes('config') },
+      { section: 'Contributing', present: readmeLower.includes('contributing') },
+      { section: 'License', present: readmeLower.includes('license') },
+      { section: 'Code of Conduct', present: readmeLower.includes('code of conduct') },
+      { section: 'Changelog', present: readmeLower.includes('changelog') },
+      { section: 'Tests', present: readmeLower.includes('test') },
+    ]
     const docs = {
       readmeScore: input.readme
         ? Math.min(100, Math.round(
-            (input.readme.length > 500 ? 30 : input.readme.length > 100 ? 15 : 5) +
-            (input.readme.includes('## ') ? 20 : 0) +
-            (input.readme.toLowerCase().includes('install') ? 15 : 0) +
-            (input.readme.toLowerCase().includes('usage') ? 15 : 0) +
-            (input.readme.toLowerCase().includes('api') ? 10 : 0) +
-            (input.readme.toLowerCase().includes('license') ? 10 : 0)
+            (readmeText.length > 500 ? 30 : readmeText.length > 100 ? 15 : 5) +
+            (readmeText.includes('## ') ? 20 : 0) +
+            (readmeLower.includes('install') ? 15 : 0) +
+            (readmeLower.includes('usage') || readmeLower.includes('example') ? 15 : 0) +
+            (readmeLower.includes('api') || readmeLower.includes('config') ? 10 : 0) +
+            (readmeLower.includes('license') ? 10 : 0)
           ))
         : 0,
       hasReadme: !!input.readme,
-      readmeLength: (input.readme || '').length,
-      hasContributing: input.readme?.toLowerCase().includes('contributing') || false,
-      hasCodeOfConduct: input.readme?.toLowerCase().includes('code of conduct') || false,
-      hasLicense: input.readme?.toLowerCase().includes('license') || false,
-      hasChangelog: input.readme?.toLowerCase().includes('changelog') || false,
-      hasApiDocs: input.readme?.toLowerCase().includes('api') || false,
+      readmeLength: readmeText.length,
+      hasContributing: readmeLower.includes('contributing'),
+      hasCodeOfConduct: readmeLower.includes('code of conduct'),
+      hasLicense: readmeLower.includes('license'),
+      hasChangelog: readmeLower.includes('changelog'),
+      hasApiDocs: readmeLower.includes('api'),
       hasWiki: false,
-      sectionCoverage: [],
+      sectionCoverage: sections,
       suggestions: [],
     }
 
     const health = {
       overall: 50,
-      stars: 0,
-      forks: 0,
+      stars: input.stars ?? 0,
+      forks: input.forks ?? 0,
       openIssues: 0,
       issuesPerStar: 0,
       lastCommitDays: 30,
       hasRecentActivity: true,
-      contributorCount: 0,
+      contributorCount: input.contributorCount ?? 0,
       busFactor: 1,
       releaseCount: 0,
-      hasCI: this.detectHasCI(input.fileTree),
-      hasTests: this.detectHasTests(input.fileTree),
+      hasCI,
+      hasTests,
     }
 
     let params = this.rl.getCurrentParams()
     if (this.options.useReinforcementLearning) {
+      const readme = input.readme || ''
       const state: State = {
         repoStars: health.stars,
         repoForks: health.forks,
         fileCount: complexity.fileCount,
-        languageCount: Object.keys(input.languages).length,
-        readmeLength: (input.readme || '').length,
+        languageCount: langCount,
+        readmeLength: readme.length,
         contributorCount: health.contributorCount,
         hasTests: health.hasTests,
         hasCI: health.hasCI,
+        readmeScore: docs.readmeScore,
+        docsSectionCount: this.computeDocsSectionCount(readme),
+        hasApiDocs: docs.hasApiDocs,
+        hasLicense: docs.hasLicense,
+      }
+      const stateValidation = this.selfHealing.validateComponent('rlState', state)
+      if (!stateValidation.valid) {
+        const healed = this.selfHealing.healOutput('rlState', state, stateValidation)
+        Object.assign(state, healed)
       }
       params = this.rl.getOptimalParams(state)
+    }
+
+    if (this.options.useSelfHealing) {
+      const docsValidation = this.selfHealing.validateComponent('docs', docs)
+      if (!docsValidation.valid) {
+        const healed = this.selfHealing.healOutput('docs', docs, docsValidation)
+        Object.assign(docs, healed)
+      }
     }
 
     const scores = computeQualityScores(
@@ -358,30 +398,78 @@ export class LocalAIProvider implements AIProvider {
     return scores
   }
 
+  private computeDocsSectionCount(readme: string): number {
+    if (!readme) return 0
+    let count = 0
+    if (readme.length > 50) count++
+    if (readme.toLowerCase().includes('install')) count++
+    if (readme.toLowerCase().includes('usage') || readme.toLowerCase().includes('example')) count++
+    if (readme.toLowerCase().includes('api')) count++
+    if (readme.toLowerCase().includes('config')) count++
+    if (readme.toLowerCase().includes('contributing')) count++
+    if (readme.toLowerCase().includes('license')) count++
+    if (readme.toLowerCase().includes('code of conduct')) count++
+    if (readme.toLowerCase().includes('changelog')) count++
+    if (readme.toLowerCase().includes('test')) count++
+    return Math.min(10, count)
+  }
+
   private async runReinforcementLearning(
     input: AIAnalysisInput,
     scores: QualityScores
   ): Promise<void> {
     if (!this.options.useReinforcementLearning) return
 
+    const readme = input.readme || ''
     const fileCount = countFiles(input.fileTree)
+    const readmeScore = Math.min(100, Math.round(
+      (readme.length > 500 ? 30 : readme.length > 100 ? 15 : 5) +
+      (readme.includes('## ') ? 20 : 0) +
+      (readme.toLowerCase().includes('install') ? 15 : 0) +
+      (readme.toLowerCase().includes('usage') || readme.toLowerCase().includes('example') ? 15 : 0) +
+      (readme.toLowerCase().includes('api') || readme.toLowerCase().includes('config') ? 10 : 0) +
+      (readme.toLowerCase().includes('license') ? 10 : 0)
+    ))
+    const docsSectionCount = this.computeDocsSectionCount(readme)
+    const hasApiDocs = readme.toLowerCase().includes('api')
+    const hasLicense = readme.toLowerCase().includes('license')
+
     const state: State = {
-      repoStars: 0,
-      repoForks: 0,
+      repoStars: input.stars ?? 0,
+      repoForks: input.forks ?? 0,
       fileCount,
       languageCount: Object.keys(input.languages).length,
-      readmeLength: (input.readme || '').length,
-      contributorCount: 0,
+      readmeLength: readme.length,
+      contributorCount: input.contributorCount ?? 0,
       hasTests: this.detectHasTests(input.fileTree),
       hasCI: this.detectHasCI(input.fileTree),
+      readmeScore,
+      docsSectionCount,
+      hasApiDocs,
+      hasLicense,
     }
 
-    const componentHealth = this.selfHealing.getComponentHealth('qualityScores')
-    const reward = this.rl.computeReward(scores.overall, componentHealth)
-    const action = this.rl.selectAction(state, 0.3)
+    const baselineParams = this.rl.getCurrentParams()
+    for (let exploreStep = 0; exploreStep < 3; exploreStep++) {
+      const action = this.rl.selectAction(state, 0.4)
+      const trialParams = this.rl.applyAction(baselineParams, action)
+      const trialScores = computeQualityScores(
+        { languages: input.languages, fileTree: input.fileTree, dependencyFiles: input.dependencyFiles } as any,
+        { overall: 0, fileCount, totalLines: 0, averageFileSize: 0, deepestNesting: 0, languageBreakdown: [] },
+        { readmeScore, hasReadme: readme.length > 0, readmeLength: readme.length, hasContributing: false, hasCodeOfConduct: false, hasLicense, hasChangelog: false, hasApiDocs, hasWiki: false, sectionCoverage: [], suggestions: [] },
+        { overall: 0, stars: state.repoStars, forks: state.repoForks, openIssues: 0, issuesPerStar: 0, lastCommitDays: 30, hasRecentActivity: true, contributorCount: state.contributorCount, busFactor: 1, releaseCount: 0, hasCI: state.hasCI, hasTests: state.hasTests },
+        trialParams
+      )
 
-    this.rl.storeExperience(state, action, reward, state)
-    this.rl.train()
+      const reward = this.rl.computeReward(trialScores.overall, { errorRate: 0 })
+      const nextState: State = { ...state }
+      nextState.repoStars = Math.max(0, state.repoStars + (action.paramName === 'communityWeight' ? Math.round(action.delta * 1000) : 0))
+      nextState.repoForks = Math.max(0, state.repoForks + (action.paramName === 'communityWeight' ? Math.round(action.delta * 100) : 0))
+
+      this.rl.storeExperience(state, action, reward, nextState)
+    }
+    this.rl.trainMultiple(3, 16)
+    this.rl.persist()
   }
 
   getSelfHealingLayer(): SelfHealingLayer {

@@ -1,5 +1,5 @@
 import React from 'react'
-import { BookOpen, ArrowRight } from 'lucide-react'
+import { BookOpen } from 'lucide-react'
 
 interface OnboardingGuideProps {
   guide: string

@@ -80,7 +80,7 @@ export function analyzeArchitecture(
       }
     }
 
-    if (evidence > 0) {
+    if (evidence >= 2) {
       detected.push({
         name: pattern.name,
         confidence: Math.min(95, 30 + evidence * 15),

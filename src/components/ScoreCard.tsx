@@ -6,7 +6,9 @@ interface ScoreCardProps {
   scores: QualityScores
 }
 
-const metrics: { key: keyof QualityScores; label: string }[] = [
+type ScoreKey = 'overall' | 'codeQuality' | 'documentation' | 'maintainability' | 'communityHealth' | 'security'
+
+const metrics: { key: ScoreKey; label: string }[] = [
   { key: 'overall', label: 'Overall' },
   { key: 'codeQuality', label: 'Code Quality' },
   { key: 'documentation', label: 'Documentation' },

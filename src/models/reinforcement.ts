@@ -10,14 +10,18 @@ export interface State {
   contributorCount: number
   hasTests: boolean
   hasCI: boolean
+  readmeScore: number
+  docsSectionCount: number
+  hasApiDocs: boolean
+  hasLicense: boolean
 }
 
-export interface Action {
+interface Action {
   paramName: keyof ScorerParams
   delta: number
 }
 
-export interface Experience {
+interface Experience {
   state: State
   action: Action
   reward: number
@@ -35,6 +39,10 @@ function quantizeState(state: State): string {
     contributorCount: state.contributorCount <= 1 ? 0 : state.contributorCount <= 5 ? 1 : state.contributorCount <= 20 ? 2 : 3,
     hasTests: state.hasTests ? 1 : 0,
     hasCI: state.hasCI ? 1 : 0,
+    readmeScore: state.readmeScore < 20 ? 0 : state.readmeScore < 40 ? 1 : state.readmeScore < 60 ? 2 : state.readmeScore < 80 ? 3 : 4,
+    docsSectionCount: state.docsSectionCount === 0 ? 0 : state.docsSectionCount <= 3 ? 1 : state.docsSectionCount <= 6 ? 2 : 3,
+    hasApiDocs: state.hasApiDocs ? 1 : 0,
+    hasLicense: state.hasLicense ? 1 : 0,
   }
   return Object.values(bins).join(':')
 }
@@ -129,7 +137,10 @@ export class ReinforcementLearner {
   applyAction(params: ScorerParams, action: Action): ScorerParams {
     const newParams = { ...params }
     const current = (newParams as any)[action.paramName] as number
-    ;(newParams as any)[action.paramName] = Math.max(0, Math.min(1, current + action.delta))
+    const isBonus = action.paramName === 'complexityBonus' || action.paramName === 'readmeBonus'
+    ;(newParams as any)[action.paramName] = isBonus
+      ? Math.max(0, Math.min(50, current + action.delta))
+      : Math.max(0, Math.min(1, current + action.delta))
     return newParams
   }
 
@@ -311,7 +322,9 @@ export class ReinforcementLearner {
   }
 
   importQTable(data: Record<string, Record<string, number>>): void {
+    if (!data || typeof data !== 'object') return
     for (const [stateKey, actions] of Object.entries(data)) {
+      if (!actions || typeof actions !== 'object') continue
       const actionMap = new Map(Object.entries(actions))
       this.qTable.set(stateKey, actionMap)
     }
@@ -320,7 +333,6 @@ export class ReinforcementLearner {
   persist(): string {
     const qTable = this.exportQTable()
     const path = saveQTable(qTable, this.trainingSteps, 'latest')
-    this.persistCounter++
     this.lastPersistTime = Date.now()
     return path
   }

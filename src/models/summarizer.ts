@@ -41,7 +41,7 @@ function textRank(sentences: string[]): number[] {
   return scores
 }
 
-export interface SummarizationResult {
+interface SummarizationResult {
   summary: string
   keyPoints: string[]
   confidence: number

@@ -1,5 +1,5 @@
 import React from 'react'
-import { Download, FileDown } from 'lucide-react'
+import { FileDown } from 'lucide-react'
 import { AnalysisReport } from '@/types'
 
 interface ExportButtonProps {

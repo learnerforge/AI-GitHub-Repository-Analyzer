@@ -1,5 +1,5 @@
 import React from 'react'
-import { Lightbulb, ArrowRight } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 
 interface ImprovementSuggestionsProps {
   suggestions: string[]

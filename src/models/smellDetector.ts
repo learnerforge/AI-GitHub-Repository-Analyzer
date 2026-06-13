@@ -1,4 +1,4 @@
-import { CodeSmell, FileNode, RepoInfo } from '@/types'
+import { CodeSmell, FileNode } from '@/types'
 
 export interface SmellDetectionInput {
   fileTree: FileNode[]

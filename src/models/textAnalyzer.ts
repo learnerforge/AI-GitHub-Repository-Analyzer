@@ -1,11 +1,11 @@
 import { getTechKeywords } from './knowledge'
 
-export interface KeywordScore {
+interface KeywordScore {
   word: string
   score: number
 }
 
-export interface SentenceScore {
+interface SentenceScore {
   sentence: string
   score: number
 }
@@ -58,78 +58,6 @@ export function extractKeywords(text: string, topN: number = 20): KeywordScore[]
     .map(([word, count]) => ({ word, score: count / totalWords }))
     .sort((a, b) => b.score - a.score)
     .slice(0, topN)
-}
-
-export function computeTFIDF(
-  documents: string[]
-): Map<string, number[]> {
-  const numDocs = documents.length
-  const df: Record<string, number> = {}
-  const tfs: Record<string, number[]> = {}
-
-  for (const doc of documents) {
-    const words = tokenize(doc)
-    const unique = new Set(words)
-    const docFreq: Record<string, number> = {}
-
-    for (const w of words) {
-      docFreq[w] = (docFreq[w] || 0) + 1
-    }
-
-    for (const w of unique) {
-      df[w] = (df[w] || 0) + 1
-    }
-
-    for (const [w, count] of Object.entries(docFreq)) {
-      if (!tfs[w]) tfs[w] = []
-      tfs[w].push(count / words.length)
-    }
-  }
-
-  const result = new Map<string, number[]>()
-  for (const [word, tfValues] of Object.entries(tfs)) {
-    const idf = Math.log((numDocs + 1) / (df[word] + 1)) + 1
-    result.set(word, tfValues.map(tf => tf * idf))
-  }
-
-  return result
-}
-
-export function detectLanguage(text: string): string {
-  const keywords = getTechKeywords()
-  const lower = text.toLowerCase()
-  const scores: Record<string, number> = {}
-
-  for (const [lang, kws] of Object.entries(keywords)) {
-    let score = 0
-    for (const kw of kws) {
-      if (lower.includes(kw)) {
-        score += 1
-      }
-    }
-    if (score > 0) {
-      scores[lang] = score / kws.length
-    }
-  }
-
-  return Object.entries(scores)
-    .sort(([, a], [, b]) => b - a)
-    .slice(0, 3)
-    .map(([lang]) => lang)
-    .join(', ')
-}
-
-export function extractEntities(text: string, knownTerms: string[]): string[] {
-  const lower = text.toLowerCase()
-  const found: string[] = []
-
-  for (const term of knownTerms) {
-    if (lower.includes(term.toLowerCase())) {
-      found.push(term)
-    }
-  }
-
-  return [...new Set(found)]
 }
 
 export function calculateReadability(text: string): number {
