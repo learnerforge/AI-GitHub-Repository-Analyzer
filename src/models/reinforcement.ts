@@ -1,4 +1,5 @@
 import { ScorerParams, getDefaultParams } from './qualityScorer'
+import { saveQTable, saveExperienceBuffer, loadLatestQTable, loadAllExperiences } from './persistence'
 
 export interface State {
   repoStars: number
@@ -59,13 +60,28 @@ const LEARNING_RATE = 0.1
 const DISCOUNT_FACTOR = 0.9
 const EPSILON = 0.2
 
+const AUTO_TRAIN_THRESHOLD = 50
+const PERSIST_INTERVAL = 10
+const MAX_BUFFER_SIZE = 2000
+const MIN_TRAIN_BATCH = 32
+
 export class ReinforcementLearner {
   private qTable: Map<string, Map<string, number>> = new Map()
   private experienceBuffer: Experience[] = []
-  private maxBufferSize = 1000
-  private minBufferSize = 32
+  private maxBufferSize = MAX_BUFFER_SIZE
+  private minBufferSize = MIN_TRAIN_BATCH
   private trainingSteps = 0
   private currentParams: ScorerParams = getDefaultParams()
+  private persistCounter = 0
+  private totalRewards: number[] = []
+  private episodeRewards: number[] = []
+  private lastPersistTime = Date.now()
+
+  constructor(loadPersisted: boolean = true) {
+    if (loadPersisted) {
+      this.loadFromDisk()
+    }
+  }
 
   getStateKey(state: State): string {
     return quantizeState(state)
@@ -124,9 +140,21 @@ export class ReinforcementLearner {
     nextState: State
   ): void {
     this.experienceBuffer.push({ state, action, reward, nextState, timestamp: Date.now() })
+    this.totalRewards.push(reward)
+    this.episodeRewards.push(reward)
+
     if (this.experienceBuffer.length > this.maxBufferSize) {
-      this.experienceBuffer.shift()
+      this.experienceBuffer = this.experienceBuffer.slice(
+        -this.maxBufferSize
+      )
     }
+
+    if (this.totalRewards.length > 1000) {
+      this.totalRewards = this.totalRewards.slice(-1000)
+    }
+
+    this.autoTrain()
+    this.autoPersist()
   }
 
   computeReward(
@@ -138,7 +166,21 @@ export class ReinforcementLearner {
     return Math.max(-1, Math.min(1, baseReward - errorPenalty))
   }
 
-  train(batchSize: number = 32): { loss: number; episodes: number } {
+  computeUserReward(rating: number): number {
+    return Math.max(-1, Math.min(1, (rating - 3) / 2))
+  }
+
+  ingestUserFeedback(
+    rating: number,
+    state: State,
+    action: Action,
+    nextState?: State
+  ): void {
+    const reward = this.computeUserReward(rating)
+    this.storeExperience(state, action, reward, nextState || state)
+  }
+
+  train(batchSize: number = 64): { loss: number; episodes: number } {
     if (this.experienceBuffer.length < this.minBufferSize) {
       return { loss: 0, episodes: 0 }
     }
@@ -147,12 +189,14 @@ export class ReinforcementLearner {
     const batch: Experience[] = []
     const indices = new Set<number>()
 
-    while (batch.length < batchSize_) {
+    let attempts = 0
+    while (batch.length < batchSize_ && attempts < this.experienceBuffer.length * 2) {
       const idx = Math.floor(Math.random() * this.experienceBuffer.length)
       if (!indices.has(idx)) {
         indices.add(idx)
         batch.push(this.experienceBuffer[idx])
       }
+      attempts++
     }
 
     let totalLoss = 0
@@ -180,8 +224,29 @@ export class ReinforcementLearner {
     }
 
     return {
-      loss: totalLoss / batchSize_,
-      episodes: batchSize_,
+      loss: totalLoss / Math.max(1, batch.length),
+      episodes: batch.length,
+    }
+  }
+
+  trainMultiple(iterations: number = 5, batchSize: number = 64): {
+    totalLoss: number
+    averageLoss: number
+    totalEpisodes: number
+  } {
+    let totalLoss = 0
+    let totalEpisodes = 0
+
+    for (let i = 0; i < iterations; i++) {
+      const result = this.train(batchSize)
+      totalLoss += result.loss
+      totalEpisodes += result.episodes
+    }
+
+    return {
+      totalLoss,
+      averageLoss: iterations > 0 ? totalLoss / iterations : 0,
+      totalEpisodes,
     }
   }
 
@@ -218,11 +283,22 @@ export class ReinforcementLearner {
     trainingSteps: number
     bufferSize: number
     stateCount: number
+    averageRecentReward: number
+    persistCount: number
+    uptime: number
   } {
+    const recentRewards = this.episodeRewards.slice(-20)
+    const avgReward = recentRewards.length > 0
+      ? recentRewards.reduce((a, b) => a + b, 0) / recentRewards.length
+      : 0
+
     return {
       trainingSteps: this.trainingSteps,
       bufferSize: this.experienceBuffer.length,
       stateCount: this.qTable.size,
+      averageRecentReward: Math.round(avgReward * 1000) / 1000,
+      persistCount: this.persistCounter,
+      uptime: Date.now() - this.lastPersistTime,
     }
   }
 
@@ -240,6 +316,84 @@ export class ReinforcementLearner {
       this.qTable.set(stateKey, actionMap)
     }
   }
+
+  persist(): string {
+    const qTable = this.exportQTable()
+    const path = saveQTable(qTable, this.trainingSteps, 'latest')
+    this.persistCounter++
+    this.lastPersistTime = Date.now()
+    return path
+  }
+
+  persistExperiences(): string {
+    if (this.experienceBuffer.length === 0) return ''
+    return saveExperienceBuffer(this.experienceBuffer.slice(-100))
+  }
+
+  loadFromDisk(): boolean {
+    const data = loadLatestQTable()
+    if (data) {
+      this.importQTable(data.qTable)
+      this.trainingSteps = data.trainingSteps
+      return true
+    }
+
+    const historicalExperiences = loadAllExperiences()
+    if (historicalExperiences.length > 0) {
+      for (const exp of historicalExperiences) {
+        const state = exp.state as State
+        const action = exp.action as Action
+        const nextState = exp.nextState as State
+        this.storeExperience(
+          state,
+          action,
+          exp.reward,
+          nextState
+        )
+      }
+      this.trainMultiple(10, 64)
+    }
+
+    return false
+  }
+
+  getRecentRewardTrend(): { improving: boolean; slope: number } {
+    if (this.episodeRewards.length < 10) {
+      return { improving: false, slope: 0 }
+    }
+
+    const recent = this.episodeRewards.slice(-50)
+    const n = recent.length
+    if (n < 2) return { improving: false, slope: 0 }
+
+    const indices = Array.from({ length: n }, (_, i) => i)
+    const meanX = (n - 1) / 2
+    const meanY = recent.reduce((a, b) => a + b, 0) / n
+
+    let numerator = 0
+    let denominator = 0
+    for (let i = 0; i < n; i++) {
+      numerator += (i - meanX) * (recent[i] - meanY)
+      denominator += (i - meanX) * (i - meanX)
+    }
+
+    const slope = denominator !== 0 ? numerator / denominator : 0
+    return { improving: slope > 0, slope: Math.round(slope * 10000) / 10000 }
+  }
+
+  private autoTrain(): void {
+    if (this.experienceBuffer.length >= AUTO_TRAIN_THRESHOLD) {
+      const batchSize = Math.min(64, this.experienceBuffer.length)
+      this.train(batchSize)
+    }
+  }
+
+  private autoPersist(): void {
+    this.persistCounter++
+    if (this.persistCounter % PERSIST_INTERVAL === 0) {
+      this.persist()
+    }
+  }
 }
 
-export const reinforcementLearner = new ReinforcementLearner()
+export const reinforcementLearner = new ReinforcementLearner(true)
