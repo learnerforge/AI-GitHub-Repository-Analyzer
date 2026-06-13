@@ -70,14 +70,27 @@ Provide a comprehensive analysis including tech stack detection, architecture ov
 }
 
 export function createAIProvider(): AIProvider {
-  const hasOpenAIKey = !!(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key_here')
+  const hasGeminiKey = !!(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_gemini_api_key_here' && process.env.GEMINI_API_KEY.length > 10)
+  if (hasGeminiKey) {
+    console.log('[AI] Gemini API key detected — using Gemini provider')
+    const { GeminiProvider } = require('./gemini')
+    return new GeminiProvider()
+  }
 
+  const hasGroqKey = !!(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'your_groq_api_key_here' && process.env.GROQ_API_KEY.length > 10)
+  if (hasGroqKey) {
+    console.log('[AI] Groq API key detected — using Groq provider')
+    const { GroqProvider } = require('./groq')
+    return new GroqProvider()
+  }
+
+  const hasOpenAIKey = !!(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key_here')
   if (hasOpenAIKey) {
     console.log('[AI] OpenAI API key detected — using OpenAI provider')
     return new OpenAIProvider()
   }
 
-  console.log('[AI] No OpenAI API key — using local AI model (self-contained)')
+  console.log('[AI] No API keys detected — using local AI model (self-contained)')
   console.log('[AI] Local model features: TextRank summarization, rule-based tech detection,')
   console.log('[AI]   heuristic scoring, self-healing validation, RL-based parameter optimization')
   return new LocalAIProvider()

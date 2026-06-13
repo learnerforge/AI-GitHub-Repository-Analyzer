@@ -7,7 +7,7 @@ import { detectCodeSmells, SmellDetectionInput } from './smellDetector'
 import { computeQualityScores } from './qualityScorer'
 import { generateOnboardingGuide } from './onboarding'
 import { selfHealingLayer, SelfHealingLayer } from './selfHealing'
-import { reinforcementLearner, ReinforcementLearner, State } from './reinforcement'
+import { reinforcementLearner, ReinforcementLearner, State, computeReadmeMetrics } from './reinforcement'
 import { extractKeywords } from './textAnalyzer'
 
 export class LocalAIProvider implements AIProvider {
@@ -361,6 +361,7 @@ export class LocalAIProvider implements AIProvider {
     let weightParams = this.rl.getCurrentParams()
     if (this.options.useReinforcementLearning) {
       const readme = input.readme || ''
+      const readmeMetrics = computeReadmeMetrics(readme)
       const hasDocker = checkHasDockerfile(input.fileTree)
       const state: State = {
         repoStars: health.stars,
@@ -378,6 +379,7 @@ export class LocalAIProvider implements AIProvider {
         lastCommitDays,
         hasDockerfile: hasDocker,
         hasContributing: docs.hasContributing,
+        ...readmeMetrics,
       }
       const stateValidation = this.selfHealing.validateComponent('rlState', state)
       if (!stateValidation.valid) {
@@ -402,6 +404,7 @@ export class LocalAIProvider implements AIProvider {
       lastCommitDays,
       hasDockerfile: checkHasDockerfile(input.fileTree),
       hasContributing: docs.hasContributing,
+      ...computeReadmeMetrics(input.readme || ''),
     })
 
     if (this.options.useSelfHealing) {
@@ -473,6 +476,7 @@ export class LocalAIProvider implements AIProvider {
     const lastCommitDays = input.pushedAt
       ? Math.round((Date.now() - new Date(input.pushedAt).getTime()) / 86400000)
       : 30
+    const readmeMetrics = computeReadmeMetrics(readme)
     const hasDocker = checkHasDockerfile(input.fileTree)
 
     const state: State = {
@@ -491,6 +495,7 @@ export class LocalAIProvider implements AIProvider {
       lastCommitDays,
       hasDockerfile: hasDocker,
       hasContributing,
+      ...readmeMetrics,
     }
 
     const baselineParams = this.rl.getCurrentParams()

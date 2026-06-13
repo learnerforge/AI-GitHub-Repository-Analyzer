@@ -10,18 +10,21 @@
     "worker": "node workers/analysisWorker.js",
     "train": "tsx workers/trainingWorker.ts",
     "train:compact": "tsx workers/compactTrain.ts",
-    "analyze:local": "tsx workers/localAnalyzer.ts"
+    "analyze:local": "tsx workers/localAnalyzer.ts",
+    "analyze:batch": "tsx workers/batchAnalyzer.ts"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "dotenv": "^17.4.2",
+    "lucide-react": "^0.400.0",
     "next": "^14.2.0",
+    "octokit": "^4.0.0",
+    "openai": "^4.52.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-markdown": "^9.0.0",
     "recharts": "^2.12.0",
-    "octokit": "^4.0.0",
-    "openai": "^4.52.0",
-    "uuid": "^10.0.0",
-    "lucide-react": "^0.400.0"
+    "uuid": "^10.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

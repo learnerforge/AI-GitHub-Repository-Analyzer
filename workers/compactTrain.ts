@@ -17,6 +17,10 @@ interface State {
   readmeScore: number; docsSectionCount: number
   hasApiDocs: boolean; hasLicense: boolean
   lastCommitDays: number; hasDockerfile: boolean; hasContributing: boolean
+  headingCount: number; codeBlockCount: number; imageCount: number
+  badgeCount: number; emojiCount: number; tableCount: number
+  checklistCount: number; linkCount: number; todoCount: number
+  fixmeCount: number; hackCount: number; tempCount: number
 }
 
 interface Experience {
@@ -49,6 +53,18 @@ function getStateKey(s: State): string {
     quantize(s.lastCommitDays, 90),
     s.hasDockerfile,
     s.hasContributing,
+    s.headingCount === 0 ? 0 : s.headingCount <= 3 ? 1 : s.headingCount <= 10 ? 2 : 3,
+    s.codeBlockCount === 0 ? 0 : s.codeBlockCount <= 3 ? 1 : s.codeBlockCount <= 10 ? 2 : 3,
+    s.imageCount === 0 ? 0 : s.imageCount <= 3 ? 1 : 2,
+    s.badgeCount === 0 ? 0 : s.badgeCount <= 3 ? 1 : 2,
+    s.emojiCount === 0 ? 0 : s.emojiCount <= 5 ? 1 : 2,
+    s.tableCount === 0 ? 0 : s.tableCount <= 3 ? 1 : 2,
+    s.checklistCount === 0 ? 0 : s.checklistCount <= 3 ? 1 : 2,
+    s.linkCount === 0 ? 0 : s.linkCount <= 5 ? 1 : s.linkCount <= 20 ? 2 : 3,
+    s.todoCount === 0 ? 0 : s.todoCount <= 5 ? 1 : 2,
+    s.fixmeCount === 0 ? 0 : s.fixmeCount <= 3 ? 1 : 2,
+    s.hackCount === 0 ? 0 : 1,
+    s.tempCount === 0 ? 0 : 1,
   ].join(':')
 }
 
@@ -73,6 +89,18 @@ function extractState(report: any): State {
     lastCommitDays: report.health?.lastCommitDays ?? 30,
     hasDockerfile: report.health?.hasDockerfile || (report.fileTree ? checkFileTreeForDocker(report.fileTree) : false),
     hasContributing: report.docsQuality?.hasContributing || false,
+    headingCount: report.docsQuality?.headingCount ?? 0,
+    codeBlockCount: report.docsQuality?.codeBlockCount ?? 0,
+    imageCount: report.docsQuality?.imageCount ?? 0,
+    badgeCount: report.docsQuality?.badgeCount ?? 0,
+    emojiCount: report.docsQuality?.emojiCount ?? 0,
+    tableCount: report.docsQuality?.tableCount ?? 0,
+    checklistCount: report.docsQuality?.checklistCount ?? 0,
+    linkCount: report.docsQuality?.linkCount ?? 0,
+    todoCount: report.docsQuality?.todoCount ?? 0,
+    fixmeCount: report.docsQuality?.fixmeCount ?? 0,
+    hackCount: report.docsQuality?.hackCount ?? 0,
+    tempCount: report.docsQuality?.tempCount ?? 0,
   }
 }
 

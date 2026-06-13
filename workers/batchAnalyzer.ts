@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import * as fs from 'fs'
 import * as path from 'path'
 import { execSync } from 'child_process'
@@ -120,8 +121,35 @@ function findDepFiles(fileTree: FileNode[], dir: string): Record<string, string>
   return deps
 }
 
+function countFilesInTree(fileTree: FileNode[]): number {
+  let count = 0
+  function walk(nodes: FileNode[]) {
+    for (const n of nodes) {
+      if (n.type === 'blob') count++
+      if (n.children) walk(n.children)
+    }
+  }
+  walk(fileTree)
+  return count
+}
+
 function sanitizeName(s: string): string {
   return s.replace(/[^a-zA-Z0-9_-]/g, '_')
+}
+
+async function fetchJson(url: string, token?: string): Promise<any> {
+  const headers: Record<string, string> = {
+    'Accept': 'application/vnd.github.v3+json',
+    'User-Agent': 'AI-GitHub-Repo-Analyzer/1.0',
+  }
+  if (token && token.length > 10 && token !== 'your_github_token_here') {
+    headers['Authorization'] = `token ${token}`
+  }
+  const res = await fetch(url, { headers })
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+  }
+  return res.json()
 }
 
 async function fetchGitHubApi(url: string): Promise<Partial<RepoInfo> | null> {
@@ -129,63 +157,61 @@ async function fetchGitHubApi(url: string): Promise<Partial<RepoInfo> | null> {
   if (!token || token === 'your_github_token_here' || token.length <= 10) return null
 
   try {
-    const { Octokit } = require('octokit')
-    const octokit = new Octokit({ auth: token })
     const match = url.match(/github\.com\/([^\/]+)\/([^\/\.#?]+)/)
     if (!match) return null
     const owner = match[1], name = match[2].replace(/\.git$/, '')
+    const baseUrl = `https://api.github.com/repos/${owner}/${name}`
 
-    const [repoRes, languagesRes, contributorsRes] = await Promise.all([
-      octokit.rest.repos.get({ owner, repo: name }),
-      octokit.rest.repos.listLanguages({ owner, repo: name }),
-      octokit.rest.repos.listContributors({ owner, repo: name }).catch(() => ({ data: [] })),
+    const [repoData, languagesData, contributorsData] = await Promise.all([
+      fetchJson(baseUrl, token),
+      fetchJson(`${baseUrl}/languages`, token),
+      fetchJson(`${baseUrl}/contributors?per_page=30`, token).catch(() => []),
     ])
 
-    const repo = repoRes.data
     return {
-      description: repo.description,
-      defaultBranch: repo.default_branch,
-      stars: repo.stargazers_count ?? 0,
-      forks: repo.forks_count ?? 0,
-      openIssues: repo.open_issues_count ?? 0,
-      watchers: repo.subscribers_count ?? 0,
-      topics: repo.topics ?? [],
-      license: repo.license?.spdx_id ?? null,
-      createdAt: repo.created_at,
-      updatedAt: repo.updated_at,
-      pushedAt: repo.pushed_at,
-      size: repo.size,
-      languages: languagesRes.data as Record<string, number>,
-      contributors: (contributorsRes.data as any[]).slice(0, 30).map((c: any) => ({
+      description: repoData.description,
+      defaultBranch: repoData.default_branch,
+      stars: repoData.stargazers_count ?? 0,
+      forks: repoData.forks_count ?? 0,
+      openIssues: repoData.open_issues_count ?? 0,
+      watchers: repoData.subscribers_count ?? 0,
+      topics: repoData.topics ?? [],
+      license: repoData.license?.spdx_id ?? null,
+      createdAt: repoData.created_at,
+      updatedAt: repoData.updated_at,
+      pushedAt: repoData.pushed_at,
+      size: repoData.size,
+      languages: languagesData as Record<string, number>,
+      contributors: (contributorsData as any[]).slice(0, 30).map((c: any) => ({
         login: c.login,
         avatarUrl: c.avatar_url,
         contributions: c.contributions,
       })),
     }
   } catch (e: any) {
-    console.error(`[LocalAnalyzer] GitHub API fetch failed for ${url}: ${e.message}`)
+    console.error(`[Batch] GitHub API fetch failed for ${url}: ${e.message}`)
     return null
   }
 }
 
-async function analyzeOne(url: string): Promise<boolean> {
+async function analyzeOne(url: string, index: number, total: number): Promise<boolean> {
   const match = url.match(/github\.com\/([^\/]+)\/([^\/\.#?]+)/)
-  if (!match) { console.error(`[LocalAnalyzer] Invalid GitHub URL: ${url}`); return false }
-  const owner = match[1]
-  const repoName = match[2]
+  if (!match) { console.error(`[Batch] Invalid GitHub URL: ${url}`); return false }
+  const owner = match[1], repoName = match[2].replace(/\.git$/, '')
   const cloneDir = path.join(TMP_DIR, `${sanitizeName(owner)}-${sanitizeName(repoName)}`)
+  const label = `[${index + 1}/${total}] ${owner}/${repoName}`
 
   // Phase 1: Fetch GitHub API metadata (optional, requires GITHUB_TOKEN)
-  console.log(`[LocalAnalyzer] (${url}) Fetching GitHub API metadata...`)
+  console.log(`\n${label} Fetching GitHub API metadata...`)
   const apiData = await fetchGitHubApi(url)
   if (apiData) {
-    console.log(`[LocalAnalyzer] API: ${apiData.stars} stars, ${apiData.forks} forks, ${Object.keys(apiData.languages || {}).length} langs`)
+    console.log(`${label} API: ${apiData.stars} stars, ${apiData.forks} forks, ${Object.keys(apiData.languages || {}).length} langs`)
   } else {
-    console.log(`[LocalAnalyzer] API: no token or fetch failed — clone-only mode`)
+    console.log(`${label} API: No token or fetch failed — clone-only mode`)
   }
 
-  // Phase 2: Clone repo
-  console.log(`[LocalAnalyzer] Cloning ${owner}/${repoName}...`)
+  // Phase 2: Clone repo locally
+  console.log(`${label} Cloning repository...`)
   if (fs.existsSync(cloneDir)) {
     try { fs.rmSync(cloneDir, { recursive: true, force: true }) }
     catch { execSync(`cmd /c rmdir /s /q "${cloneDir}"`, { stdio: 'pipe' }) }
@@ -193,29 +219,30 @@ async function analyzeOne(url: string): Promise<boolean> {
   fs.mkdirSync(cloneDir, { recursive: true })
 
   try {
-    execSync(`git clone --depth 1 "${url}" "${cloneDir}"`, { stdio: 'pipe', timeout: 300000 })
+    execSync(`git -c core.longpaths=true clone --depth 1 "${url}" "${cloneDir}"`, { stdio: 'pipe', timeout: 300000 })
   } catch (e: any) {
-    console.error(`[LocalAnalyzer] Clone failed for ${url}: ${e.stderr?.toString?.() || e.message}`)
-    if (fs.existsSync(cloneDir)) {
-      try { fs.rmSync(cloneDir, { recursive: true, force: true }) }
-      catch { try { execSync(`cmd /c rmdir /s /q "${cloneDir}"`, { stdio: 'pipe' }) } catch {} }
-    }
+    console.error(`${label} Clone failed: ${e.stderr?.toString?.() || e.message}`)
+    try { fs.rmSync(cloneDir, { recursive: true, force: true }) } catch {}
     return false
   }
 
   // Phase 3: Extract data from clone
-  console.log(`[LocalAnalyzer] Scanning files...`)
+  console.log(`${label} Scanning files...`)
   const fileTree = walkDir(cloneDir)
   const cloneLanguages = countLanguages(fileTree)
   const readmeContent = findReadme(fileTree, cloneDir)
   const dependencyFiles = findDepFiles(fileTree, cloneDir)
-  const fileCount = fileTree.reduce((c, n) => { function w(ns: FileNode[]): void { for (const x of ns) { if (x.type === 'blob') c++; if (x.children) w(x.children) } }; w([n]); return c }, 0)
+  const fileCount = countFilesInTree(fileTree)
+  console.log(`${label} Files: ${fileCount}, Languages: ${Object.keys(cloneLanguages).length}, Readme: ${readmeContent.length} chars`)
 
-  console.log(`[LocalAnalyzer] Files: ${fileCount}, Languages: ${Object.keys(cloneLanguages).length}, Readme: ${readmeContent.length} chars`)
-
-  // Phase 4: Build RepoInfo — merge API metadata with clone filesystem data
+  // Phase 4: Build RepoInfo — merge API data with clone data
+  // Clone data (file tree, languages, README) takes priority since it's more accurate
+  // API data (stars, forks, topics, dates) fills in metadata
   const repoInfo: RepoInfo = {
-    id: `${owner}/${repoName}`, url, owner, name: repoName,
+    id: `${owner}/${repoName}`,
+    url,
+    owner,
+    name: repoName,
     description: apiData?.description ?? null,
     defaultBranch: apiData?.defaultBranch ?? 'main',
     stars: apiData?.stars ?? 0,
@@ -230,62 +257,110 @@ async function analyzeOne(url: string): Promise<boolean> {
     size: apiData?.size ?? 0,
     languages: cloneLanguages,
     contributors: apiData?.contributors ?? [],
-    readmeContent, fileTree, dependencyFiles,
+    readmeContent,
+    fileTree,
+    dependencyFiles,
   }
+  const sourceTag = apiData ? 'api-clone' : 'clone-only'
+  const hasGemini = !!(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_gemini_api_key_here' && process.env.GEMINI_API_KEY.length > 10)
+  const hasGroq = !!(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'your_groq_api_key_here' && process.env.GROQ_API_KEY.length > 10)
+  const hasOpenAI = !!(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key_here')
+  const aiLabel = hasGemini ? 'Gemini' : hasGroq ? 'Groq' : hasOpenAI ? 'OpenAI' : 'LocalAI'
+  console.log(`${label} Source: ${sourceTag}, AI: ${aiLabel}`)
 
-  const hasApi = !!apiData
-  const aiLabel = process.env.GEMINI_API_KEY ? 'Gemini' : process.env.OPENAI_API_KEY ? 'OpenAI' : 'LocalAI'
-  console.log(`[LocalAnalyzer] Source: ${hasApi ? 'api-clone' : 'clone-only'}, AI: ${aiLabel}`)
-
-  // Phase 5: Run analysis pipeline
-  console.log(`[LocalAnalyzer] Analyzing...`)
-  const report: AnalysisReport = await analyzeRepository(repoInfo)
+  // Phase 5: Run analysis pipeline (uses whichever AI provider is configured)
+  console.log(`${label} Analyzing...`)
+  let report: AnalysisReport
+  try {
+    report = await analyzeRepository(repoInfo)
+  } catch (e: any) {
+    console.error(`${label} Analysis failed: ${e.message}`)
+    try { fs.rmSync(cloneDir, { recursive: true, force: true }) } catch {}
+    return false
+  }
 
   // Phase 6: Save report
   if (!fs.existsSync(RESULTS_DIR)) fs.mkdirSync(RESULTS_DIR, { recursive: true })
   const tag = aiLabel.toLowerCase()
   const filename = `${sanitizeName(owner)}-${sanitizeName(repoName)}-${tag}-${Date.now()}.json`
   fs.writeFileSync(path.join(RESULTS_DIR, filename), JSON.stringify(report, null, 2))
-  console.log(`[LocalAnalyzer] Report saved: analysis-results/${filename}`)
+  console.log(`${label} Report saved: analysis-results/${filename}`)
 
   // Phase 7: Cleanup
-  console.log(`[LocalAnalyzer] Cleaning up...`)
+  console.log(`${label} Cleaning up...`)
   if (fs.existsSync(cloneDir)) {
     try { fs.rmSync(cloneDir, { recursive: true, force: true }) }
     catch { try { execSync(`cmd /c rmdir /s /q "${cloneDir}"`, { stdio: 'pipe' }) } catch {} }
   }
-  console.log(`[LocalAnalyzer] Done ${owner}/${repoName}`)
+  console.log(`${label} Done`)
   return true
 }
 
 async function main() {
-  const urls = process.argv.slice(2)
-  if (urls.length === 0) {
-    console.log('Usage: npx tsx workers/localAnalyzer.ts <github-url1> [github-url2 ...]')
-    console.log('Example: npx tsx workers/localAnalyzer.ts https://github.com/torvalds/linux https://github.com/facebook/react')
+  const args = process.argv.slice(2)
+  if (args.length === 0) {
+    console.log('Usage:')
+    console.log('  npm run analyze:batch -- <github-url1> [github-url2 ...]')
+    console.log('  npm run analyze:batch -- repos.txt')
     console.log()
-    console.log('Environment:')
-    console.log('  GEMINI_API_KEY  — Gemini AI (recommended)')
-    console.log('  GITHUB_TOKEN    — GitHub API (stars/forks metadata)')
-    console.log('  OPENAI_API_KEY  — fallback AI')
+    console.log('Examples:')
+    console.log('  npm run analyze:batch -- https://github.com/facebook/react https://github.com/torvalds/linux')
+    console.log('  npm run analyze:batch -- repos.txt')
+    console.log()
+    console.log('Environment variables:')
+    console.log('  GEMINI_API_KEY  — Google Gemini AI key (recommended)')
+    console.log('  GITHUB_TOKEN    — GitHub API token (for stars/forks metadata)')
+    console.log('  OPENAI_API_KEY  — Fallback if Gemini not set')
     process.exit(1)
   }
 
+  // Determine URLs: either a file (one URL per line) or inline arguments
+  let urls: string[]
+  if (args.length === 1 && fs.existsSync(args[0])) {
+    urls = fs.readFileSync(args[0], 'utf-8')
+      .split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(l => l.length > 0 && !l.startsWith('#'))
+    console.log(`[Batch] Loaded ${urls.length} URLs from ${args[0]}`)
+  } else {
+    urls = args.filter(u => u.startsWith('http'))
+    console.log(`[Batch] ${urls.length} repo(s) from command line`)
+  }
+
+  if (urls.length === 0) {
+    console.error('[Batch] No valid URLs found')
+    process.exit(1)
+  }
+
+  // Print configuration
   const hasGemini = !!(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_gemini_api_key_here' && process.env.GEMINI_API_KEY.length > 10)
+  const hasGroq = !!(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'your_groq_api_key_here' && process.env.GROQ_API_KEY.length > 10)
   const hasOpenAI = !!(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key_here')
   const hasGitHub = !!(process.env.GITHUB_TOKEN && process.env.GITHUB_TOKEN !== 'your_github_token_here' && process.env.GITHUB_TOKEN.length > 10)
-  console.log(`[LocalAnalyzer] AI: ${hasGemini ? 'Gemini' : hasOpenAI ? 'OpenAI' : 'LocalAI'}`)
-  console.log(`[LocalAnalyzer] GitHub API: ${hasGitHub ? 'enabled' : 'disabled'}`)
-  console.log(`[LocalAnalyzer] Batch: ${urls.length} repo(s)`)
+  const aiSummaryLabel = hasGemini ? 'Gemini' : hasGroq ? 'Groq' : hasOpenAI ? 'OpenAI' : 'LocalAI (no API keys set)'
+  console.log(`[Batch] AI: ${aiSummaryLabel}`)
+  console.log(`[Batch] GitHub API: ${hasGitHub ? 'enabled' : 'disabled (no valid token)'}`)
   console.log()
 
+  // Process each repo
   let ok = 0, fail = 0
-  for (const url of urls) {
-    if (await analyzeOne(url)) ok++
+  for (let i = 0; i < urls.length; i++) {
+    if (await analyzeOne(urls[i], i, urls.length)) ok++
     else fail++
-    console.log()
   }
-  console.log(`[LocalAnalyzer] Batch complete — ${ok} succeeded, ${fail} failed`)
+
+  // Summary
+  console.log()
+  console.log('═'.repeat(55))
+  console.log(`  BATCH ANALYSIS COMPLETE`)
+  console.log(`  ${ok + fail} total, ${ok} succeeded, ${fail} failed`)
+  if (ok > 0) console.log(`  Reports: ${RESULTS_DIR}${path.sep}*-gemini-*.json`)
+  console.log('═'.repeat(55))
+
+  const stats = { total: ok + fail, ok, fail, timestamp: new Date().toISOString() }
+  const statsFile = path.join(RESULTS_DIR, '_batch-summary.json')
+  fs.writeFileSync(statsFile, JSON.stringify(stats, null, 2))
+
   process.exit(fail > 0 ? 1 : 0)
 }
 

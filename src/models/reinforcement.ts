@@ -1,6 +1,42 @@
 import { ScorerParams, getDefaultParams } from './qualityScorer'
 import { saveQTable, saveExperienceBuffer, loadLatestQTable, loadAllExperiences } from './persistence'
 
+export interface ReadmeMetrics {
+  headingCount: number
+  codeBlockCount: number
+  imageCount: number
+  badgeCount: number
+  emojiCount: number
+  tableCount: number
+  checklistCount: number
+  linkCount: number
+  todoCount: number
+  fixmeCount: number
+  hackCount: number
+  tempCount: number
+}
+
+export function computeReadmeMetrics(readme: string): ReadmeMetrics {
+  if (!readme) return { headingCount: 0, codeBlockCount: 0, imageCount: 0, badgeCount: 0, emojiCount: 0, tableCount: 0, checklistCount: 0, linkCount: 0, todoCount: 0, fixmeCount: 0, hackCount: 0, tempCount: 0 }
+
+  const headingCount = readme.match(/^## /gm)?.length ?? 0
+  const codeBlockCount = (readme.match(/```/g)?.length ?? 0) / 2
+  const imageCount = (readme.match(/!\[.*?\]\(.*?\)/g)?.length ?? 0) + (readme.match(/<img\s/gi)?.length ?? 0)
+  const badgeCount = (readme.match(/https?:\/\/img\.shields\.io\//g)?.length ?? 0) + (readme.match(/https?:\/\/badge\./g)?.length ?? 0)
+  const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{FE00}-\u{FE0F}]/gu
+  const emojiCount = (readme.match(emojiRegex)?.length ?? 0)
+  const tableCount = (readme.match(/^\|.+\|[\s]*$/gm)?.length ?? 0) > 1 ? Math.max(1, Math.floor((readme.match(/^\|.+\|[\s]*$/gm)?.length ?? 0) / 5)) : 0
+  const checklistCount = (readme.match(/-\s\[[ x]\]/gi)?.length ?? 0)
+  const linkCount = (readme.match(/\[.*?\]\(.*?\)/g)?.length ?? 0)
+  const lower = readme.toLowerCase()
+  const todoCount = (lower.match(/todo|@todo/g)?.length ?? 0)
+  const fixmeCount = (lower.match(/fixme|@fix/g)?.length ?? 0)
+  const hackCount = (lower.match(/hack|@hack/g)?.length ?? 0)
+  const tempCount = (lower.match(/temp(orary)?|@temp/g)?.length ?? 0)
+
+  return { headingCount, codeBlockCount, imageCount, badgeCount, emojiCount, tableCount, checklistCount, linkCount, todoCount, fixmeCount, hackCount, tempCount }
+}
+
 export interface State {
   repoStars: number
   repoForks: number
@@ -17,6 +53,18 @@ export interface State {
   lastCommitDays: number
   hasDockerfile: boolean
   hasContributing: boolean
+  headingCount: number
+  codeBlockCount: number
+  imageCount: number
+  badgeCount: number
+  emojiCount: number
+  tableCount: number
+  checklistCount: number
+  linkCount: number
+  todoCount: number
+  fixmeCount: number
+  hackCount: number
+  tempCount: number
 }
 
 interface Action {
@@ -75,6 +123,18 @@ function quantizeState(state: State): string {
     lastCommitDays: state.lastCommitDays < 30 ? 0 : state.lastCommitDays < 90 ? 1 : state.lastCommitDays < 365 ? 2 : 3,
     hasDockerfile: state.hasDockerfile ? 1 : 0,
     hasContributing: state.hasContributing ? 1 : 0,
+    headingCount: state.headingCount === 0 ? 0 : state.headingCount <= 3 ? 1 : state.headingCount <= 10 ? 2 : 3,
+    codeBlockCount: state.codeBlockCount === 0 ? 0 : state.codeBlockCount <= 3 ? 1 : state.codeBlockCount <= 10 ? 2 : 3,
+    imageCount: state.imageCount === 0 ? 0 : state.imageCount <= 3 ? 1 : 2,
+    badgeCount: state.badgeCount === 0 ? 0 : state.badgeCount <= 3 ? 1 : 2,
+    emojiCount: state.emojiCount === 0 ? 0 : state.emojiCount <= 5 ? 1 : 2,
+    tableCount: state.tableCount === 0 ? 0 : state.tableCount <= 3 ? 1 : 2,
+    checklistCount: state.checklistCount === 0 ? 0 : state.checklistCount <= 3 ? 1 : 2,
+    linkCount: state.linkCount === 0 ? 0 : state.linkCount <= 5 ? 1 : state.linkCount <= 20 ? 2 : 3,
+    todoCount: state.todoCount === 0 ? 0 : state.todoCount <= 5 ? 1 : 2,
+    fixmeCount: state.fixmeCount === 0 ? 0 : state.fixmeCount <= 3 ? 1 : 2,
+    hackCount: state.hackCount === 0 ? 0 : 1,
+    tempCount: state.tempCount === 0 ? 0 : 1,
   }
   return Object.values(bins).join(':')
 }
