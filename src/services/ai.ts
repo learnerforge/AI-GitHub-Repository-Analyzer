@@ -90,8 +90,6 @@ export function createAIProvider(): AIProvider {
     return new OpenAIProvider()
   }
 
-  console.log('[AI] No API keys detected — using local AI model (self-contained)')
-  console.log('[AI] Local model features: TextRank summarization, rule-based tech detection,')
-  console.log('[AI]   heuristic scoring, self-healing validation, RL-based parameter optimization')
+  console.log('[AI] No API keys — using LocalAI')
   return new LocalAIProvider()
 }
