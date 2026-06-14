@@ -13,23 +13,28 @@ interface ComponentOutput {
 
 const MIN_CONFIDENCE_THRESHOLD = 30
 const RETRY_STRATEGIES = ['relaxed', 'aggressive', 'minimal']
+const CIRCUIT_RESET_MS = 300_000
+const CIRCUIT_FAILURE_THRESHOLD = 5
 
 export class SelfHealingLayer {
   private errorLog: { component: string; error: string; timestamp: number }[] = []
   private retryCounts: Record<string, number> = {}
   private strategyIndex: Record<string, number> = {}
   private adaptationHistory: Record<string, any[]> = {}
+  private circuitBreaker: Record<string, { failures: number; trippedUntil: number }> = {}
 
-  validateComponent(component: string, data: any): ValidationResult {
+  validateComponent(component: string, data: any, strategy?: string): ValidationResult {
     const issues: string[] = []
     const corrections: Record<string, any> = {}
+    const isRelaxed = strategy === 'relaxed'
+    const isMinimal = strategy === 'minimal'
 
     switch (component) {
       case 'summary':
         if (!data || typeof data !== 'string') {
           issues.push('Summary is missing or invalid type')
           corrections.summary = 'Repository analysis summary could not be generated.'
-        } else if (data.length < 20) {
+        } else if (data.length < (isRelaxed ? 5 : 20)) {
           issues.push('Summary is too short')
           corrections.summary = data.length > 0 ? data : 'Repository analysis summary could not be generated.'
         }
@@ -44,7 +49,7 @@ export class SelfHealingLayer {
             issues.push('Languages list is missing')
             corrections['techStack.languages'] = []
           }
-          if (!Array.isArray(data.frameworks)) {
+          if (!isMinimal && !Array.isArray(data.frameworks)) {
             issues.push('Frameworks list is missing')
             corrections['techStack.frameworks'] = []
           }
@@ -72,9 +77,11 @@ export class SelfHealingLayer {
             overall: 50, codeQuality: 50, documentation: 50,
             maintainability: 50, communityHealth: 50, security: 50,
           }
-        } else {
+        } else if (!isMinimal) {
           for (const key of ['overall', 'codeQuality', 'documentation', 'maintainability', 'communityHealth', 'security']) {
-            if (typeof (data as any)[key] !== 'number' || (data as any)[key] < 0 || (data as any)[key] > 100) {
+            const val = (data as any)[key]
+            const maxVal = isRelaxed ? 120 : 100
+            if (typeof val !== 'number' || val < 0 || val > maxVal) {
               issues.push(`Score "${key}" is out of range`)
               corrections[`qualityScores.${key}`] = 50
             }
@@ -100,8 +107,9 @@ export class SelfHealingLayer {
         if (!data || typeof data !== 'object') {
           issues.push('Docs data is missing')
           corrections.docs = { readmeScore: 0, hasReadme: false, readmeLength: 0, hasContributing: false, hasCodeOfConduct: false, hasLicense: false, hasChangelog: false, hasApiDocs: false, hasWiki: false, sectionCoverage: [], suggestions: [] }
-        } else {
-          if (typeof data.readmeScore !== 'number' || data.readmeScore < 0 || data.readmeScore > 100) {
+        } else if (!isMinimal) {
+          const maxScore = isRelaxed ? 120 : 100
+          if (typeof data.readmeScore !== 'number' || data.readmeScore < 0 || data.readmeScore > maxScore) {
             issues.push('readmeScore out of range')
             corrections['docs.readmeScore'] = 0
           }
@@ -120,10 +128,10 @@ export class SelfHealingLayer {
         if (!data || typeof data !== 'object') {
           issues.push('RL state is missing')
           corrections.rlState = { repoStars: 0, repoForks: 0, fileCount: 0, languageCount: 1, readmeLength: 0, contributorCount: 0, hasTests: false, hasCI: false, readmeScore: 0, docsSectionCount: 0, hasApiDocs: false, hasLicense: false }
-        } else {
+        } else if (!isMinimal) {
           const numericFields = ['repoStars', 'repoForks', 'fileCount', 'languageCount', 'readmeLength', 'contributorCount', 'readmeScore', 'docsSectionCount']
           for (const k of numericFields) {
-            if (typeof data[k] !== 'number' || data[k] < 0 || (k === 'docsSectionCount' && (data[k] > 10 || !Number.isInteger(data[k])))) {
+            if (typeof data[k] !== 'number' || data[k] < 0 || (k === 'docsSectionCount' && (data[k] > (isRelaxed ? 15 : 10) || !Number.isInteger(data[k])))) {
               issues.push(`rlState.${k} invalid`)
             }
           }
@@ -147,6 +155,47 @@ export class SelfHealingLayer {
       corrections,
       confidence,
     }
+  }
+
+  getDefaultFor(component: string): any {
+    switch (component) {
+      case 'summary': return 'Repository analysis summary could not be generated.'
+      case 'techStack': return { languages: [], frameworks: [], databases: [], tools: [], infrastructure: [] }
+      case 'architecture': return { description: 'Standard project structure with conventional organization patterns.' }
+      case 'codeSmells': return []
+      case 'qualityScores': return { overall: 50, codeQuality: 50, documentation: 50, maintainability: 50, communityHealth: 50, security: 50 }
+      case 'suggestions': return []
+      case 'onboardingGuide': return 'No onboarding guide could be generated automatically.'
+      case 'docs': return { readmeScore: 0, hasReadme: false, readmeLength: 0, hasContributing: false, hasCodeOfConduct: false, hasLicense: false, hasChangelog: false, hasApiDocs: false, hasWiki: false, sectionCoverage: [], suggestions: [] }
+      case 'rlState': return { repoStars: 0, repoForks: 0, fileCount: 0, languageCount: 1, readmeLength: 0, contributorCount: 0, hasTests: false, hasCI: false, readmeScore: 0, docsSectionCount: 0, hasApiDocs: false, hasLicense: false }
+      default: return null
+    }
+  }
+
+  isCircuitTripped(component: string): boolean {
+    const cb = this.circuitBreaker[component]
+    if (!cb) return false
+    if (cb.trippedUntil > 0 && Date.now() > cb.trippedUntil) {
+      cb.failures = 0
+      cb.trippedUntil = 0
+      return false
+    }
+    return cb.trippedUntil > 0
+  }
+
+  recordFailure(component: string): void {
+    if (!this.circuitBreaker[component]) {
+      this.circuitBreaker[component] = { failures: 0, trippedUntil: 0 }
+    }
+    const cb = this.circuitBreaker[component]
+    cb.failures++
+    if (cb.failures >= CIRCUIT_FAILURE_THRESHOLD) {
+      cb.trippedUntil = Date.now() + CIRCUIT_RESET_MS
+    }
+  }
+
+  resetCircuit(component: string): void {
+    delete this.circuitBreaker[component]
   }
 
   autoTuneThresholds(): { adjusted: boolean; reason: string } {
@@ -189,7 +238,7 @@ export class SelfHealingLayer {
 
   shouldRetry(component: string): boolean {
     const count = this.retryCounts[component] || 0
-    return count < 3
+    return count < 3 && !this.isCircuitTripped(component)
   }
 
   recordRetry(component: string): void {
@@ -224,6 +273,18 @@ export class SelfHealingLayer {
       avgConfidence: 100 - recentErrors.length * 20,
       retries: this.retryCounts[component] || 0,
     }
+  }
+
+  getOverallConfidence(): number {
+    const components = ['summary', 'techStack', 'architecture', 'codeSmells', 'qualityScores', 'suggestions', 'onboardingGuide']
+    let totalConfidence = 0
+    let count = 0
+    for (const comp of components) {
+      const health = this.getComponentHealth(comp)
+      totalConfidence += health.avgConfidence
+      count++
+    }
+    return count > 0 ? Math.round(totalConfidence / count) : 100
   }
 
   getSystemHealth(): { components: Record<string, any>; overallHealth: 'healthy' | 'degraded' | 'unhealthy' } {

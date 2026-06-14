@@ -2,7 +2,7 @@ import 'dotenv/config'
 import * as fs from 'fs'
 import * as path from 'path'
 import { execSync } from 'child_process'
-import { RepoInfo, FileNode, AnalysisReport } from '../src/types'
+import { RepoInfo, FileNode, AnalysisReport, AnalysisMethod } from '../src/types'
 import { analyzeRepository } from '../src/services/analyzer'
 
 const RESULTS_DIR = path.join(process.cwd(), 'analysis-results')
@@ -145,11 +145,61 @@ async function fetchJson(url: string, token?: string): Promise<any> {
   if (token && token.length > 10 && token !== 'your_github_token_here') {
     headers['Authorization'] = `token ${token}`
   }
-  const res = await fetch(url, { headers })
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+  let lastErr: Error | null = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(url, { headers })
+      if (!res.ok) {
+        if (res.status >= 500 && attempt < 2) {
+          console.log(`  Retry ${attempt + 1}/2 for ${url} (HTTP ${res.status})`)
+          await new Promise(r => setTimeout(r, 2000 * (attempt + 1)))
+          continue
+        }
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+      }
+      return res.json()
+    } catch (e: any) {
+      lastErr = e
+      if (attempt < 2) {
+        console.log(`  Retry ${attempt + 1}/2 for ${url} (${e.message})`)
+        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)))
+      }
+    }
   }
-  return res.json()
+  throw lastErr || new Error('Fetch failed after 3 attempts')
+}
+
+function buildTreeFromPaths(paths: string[]): FileNode[] {
+  const root: FileNode[] = []
+  for (const p of paths) {
+    const parts = p.split('/')
+    let current = root
+    let cp = ''
+    for (let i = 0; i < parts.length; i++) {
+      cp = cp ? `${cp}/${parts[i]}` : parts[i]
+      if (i === parts.length - 1) {
+        if (!current.some(n => n.name === parts[i])) {
+          current.push({ name: parts[i], path: cp, type: 'blob', size: 0 })
+        }
+      } else {
+        let dir = current.find(n => n.name === parts[i] && n.type === 'tree') as (FileNode & { children: FileNode[] }) | undefined
+        if (!dir) {
+          dir = { name: parts[i], path: cp, type: 'tree', children: [] }
+          current.push(dir)
+        }
+        current = dir.children
+      }
+    }
+  }
+  return root
+}
+
+async function fetchRawFile(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': 'AI-GitHub-Repo-Analyzer/1.0' } })
+    if (res.ok) return await res.text()
+  } catch {}
+  return null
 }
 
 async function fetchGitHubApi(url: string): Promise<Partial<RepoInfo> | null> {
@@ -218,22 +268,84 @@ async function analyzeOne(url: string, index: number, total: number): Promise<bo
   }
   fs.mkdirSync(cloneDir, { recursive: true })
 
-  try {
-    execSync(`git -c core.longpaths=true clone --depth 1 "${url}" "${cloneDir}"`, { stdio: 'pipe', timeout: 300000 })
-  } catch (e: any) {
-    console.error(`${label} Clone failed: ${e.stderr?.toString?.() || e.message}`)
-    try { fs.rmSync(cloneDir, { recursive: true, force: true }) } catch {}
-    return false
-  }
+  let fileTree: FileNode[] = []
+  let cloneLanguages: Record<string, number> = {}
+  let readmeContent = ''
+  let dependencyFiles: Record<string, string> = {}
+  let fileCount = 0
+  let isPartialClone = false
 
-  // Phase 3: Extract data from clone
-  console.log(`${label} Scanning files...`)
-  const fileTree = walkDir(cloneDir)
-  const cloneLanguages = countLanguages(fileTree)
-  const readmeContent = findReadme(fileTree, cloneDir)
-  const dependencyFiles = findDepFiles(fileTree, cloneDir)
-  const fileCount = countFilesInTree(fileTree)
-  console.log(`${label} Files: ${fileCount}, Languages: ${Object.keys(cloneLanguages).length}, Readme: ${readmeContent.length} chars`)
+  try {
+    execSync(`git -c core.longpaths=true -c core.protectNTFS=false clone --depth 1 "${url}" "${cloneDir}"`, {
+      stdio: 'pipe', timeout: 300000, env: { ...process.env, GIT_LFS_SKIP_SMUDGE: '1' }
+    })
+    // Phase 3: Extract data from clone
+    console.log(`${label} Scanning files...`)
+    fileTree = walkDir(cloneDir)
+    cloneLanguages = countLanguages(fileTree)
+    readmeContent = findReadme(fileTree, cloneDir)
+    dependencyFiles = findDepFiles(fileTree, cloneDir)
+    fileCount = countFilesInTree(fileTree)
+    console.log(`${label} Files: ${fileCount}, Languages: ${Object.keys(cloneLanguages).length}, Readme: ${readmeContent.length} chars`)
+  } catch (e: any) {
+    const errMsg = e.stderr?.toString()?.split('\n')[0] || e.message
+    console.error(`${label} Clone failed: ${errMsg}`)
+
+    // Attempt partial clone recovery: git objects exist but checkout failed
+    try {
+      execSync(`git -C "${cloneDir}" rev-parse HEAD`, { stdio: 'pipe' })
+      isPartialClone = true
+      console.log(`${label} Partial clone detected, extracting git tree...`)
+      const lsOutput = execSync(`git -c core.protectNTFS=false -C "${cloneDir}" ls-tree -r HEAD --name-only`, {
+        stdio: 'pipe', maxBuffer: 10 * 1024 * 1024, timeout: 60000
+      }).toString().trim()
+      if (!lsOutput) throw new Error('Empty ls-tree output')
+
+      const allPaths = lsOutput.split('\n').filter((p: string) => p.length > 0)
+      console.log(`${label} Git tree has ${allPaths.length} files`)
+      const paths = allPaths.length > 10000 ? allPaths.slice(0, 10000) : allPaths
+
+      fileTree = buildTreeFromPaths(paths)
+      cloneLanguages = countLanguages(fileTree)
+      fileCount = countFilesInTree(fileTree)
+
+      // Try checkout with relaxed protections
+      try {
+        execSync(`git -c core.protectNTFS=false -C "${cloneDir}" checkout HEAD -- .`, {
+          stdio: 'pipe', timeout: 120000
+        })
+        console.log(`${label} Checkout succeeded after retry`)
+        fileTree = walkDir(cloneDir)
+        cloneLanguages = countLanguages(fileTree)
+        fileCount = countFilesInTree(fileTree)
+        readmeContent = findReadme(fileTree, cloneDir)
+        dependencyFiles = findDepFiles(fileTree, cloneDir)
+      } catch {
+        console.log(`${label} Checkout still fails, fetching files via raw.githubusercontent.com...`)
+      }
+
+      // Fetch README and dep files from GitHub raw if not already obtained
+      const rawBase = `https://raw.githubusercontent.com/${owner}/${repoName}/HEAD`
+      if (!readmeContent) {
+        for (const name of ['README.md', 'readme.md', 'Readme.md', 'README.rst', 'README']) {
+          const c = await fetchRawFile(`${rawBase}/${name}`)
+          if (c) { readmeContent = c; break }
+        }
+      }
+      if (Object.keys(dependencyFiles).length === 0) {
+        for (const name of ['package.json', 'Cargo.toml', 'requirements.txt', 'pyproject.toml', 'go.mod', 'Gemfile', 'Pipfile', 'composer.json']) {
+          const c = await fetchRawFile(`${rawBase}/${name}`)
+          if (c) dependencyFiles[name] = c.slice(0, 5000)
+        }
+      }
+
+      console.log(`${label} Partial recovery: ${fileCount} files, ${readmeContent.length} readme chars, ${Object.keys(dependencyFiles).length} dep files`)
+    } catch (e2: any) {
+      console.error(`${label} Complete clone failure: ${e2.message}`)
+      try { fs.rmSync(cloneDir, { recursive: true, force: true }) } catch {}
+      return false
+    }
+  }
 
   // Phase 4: Build RepoInfo — merge API data with clone data
   // Clone data (file tree, languages, README) takes priority since it's more accurate
@@ -261,12 +373,25 @@ async function analyzeOne(url: string, index: number, total: number): Promise<bo
     fileTree,
     dependencyFiles,
   }
-  const sourceTag = apiData ? 'api-clone' : 'clone-only'
+  const sourceTag = apiData ? (isPartialClone ? 'api-partial' : 'api-clone') : (isPartialClone ? 'partial-only' : 'clone-only')
   const hasGemini = !!(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_gemini_api_key_here' && process.env.GEMINI_API_KEY.length > 10)
   const hasGroq = !!(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'your_groq_api_key_here' && process.env.GROQ_API_KEY.length > 10)
   const hasOpenAI = !!(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key_here')
   const aiLabel = hasGemini ? 'Gemini' : hasGroq ? 'Groq' : hasOpenAI ? 'OpenAI' : 'LocalAI'
   console.log(`${label} Source: ${sourceTag}, AI: ${aiLabel}`)
+
+  const analysisMethod: AnalysisMethod = {
+    cloneMethod: isPartialClone ? 'partial' : 'full',
+    apiData: apiData ? 'full' : 'none',
+    aiProvider: aiLabel.toLowerCase() as AnalysisMethod['aiProvider'],
+    confidence: (() => {
+      let c = 100
+      if (isPartialClone) c -= 40
+      if (!apiData) c -= 20
+      if (aiLabel === 'LocalAI') c -= 25
+      return Math.max(20, c)
+    })(),
+  }
 
   // Phase 5: Run analysis pipeline (uses whichever AI provider is configured)
   console.log(`${label} Analyzing...`)
@@ -278,6 +403,7 @@ async function analyzeOne(url: string, index: number, total: number): Promise<bo
     try { fs.rmSync(cloneDir, { recursive: true, force: true }) } catch {}
     return false
   }
+  report.analysisMethod = analysisMethod
 
   // Phase 6: Save report
   if (!fs.existsSync(RESULTS_DIR)) fs.mkdirSync(RESULTS_DIR, { recursive: true })

@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { execSync } from 'child_process'
-import { RepoInfo, FileNode, AnalysisReport } from '../src/types'
+import { RepoInfo, FileNode, AnalysisReport, AnalysisMethod } from '../src/types'
 import { analyzeRepository } from '../src/services/analyzer'
 
 const RESULTS_DIR = path.join(process.cwd(), 'analysis-results')
@@ -234,12 +234,28 @@ async function analyzeOne(url: string): Promise<boolean> {
   }
 
   const hasApi = !!apiData
-  const aiLabel = process.env.GEMINI_API_KEY ? 'Gemini' : process.env.OPENAI_API_KEY ? 'OpenAI' : 'LocalAI'
+  const hasGemini = !!(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_gemini_api_key_here' && process.env.GEMINI_API_KEY.length > 10)
+  const hasGroq = !!(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'your_groq_api_key_here' && process.env.GROQ_API_KEY.length > 10)
+  const hasOpenAI = !!(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key_here')
+  const aiLabel = hasGemini ? 'Gemini' : hasGroq ? 'Groq' : hasOpenAI ? 'OpenAI' : 'LocalAI'
   console.log(`[LocalAnalyzer] Source: ${hasApi ? 'api-clone' : 'clone-only'}, AI: ${aiLabel}`)
+
+  const analysisMethod: AnalysisMethod = {
+    cloneMethod: 'full',
+    apiData: apiData ? 'full' : 'none',
+    aiProvider: aiLabel.toLowerCase() as AnalysisMethod['aiProvider'],
+    confidence: (() => {
+      let c = 100
+      if (!apiData) c -= 20
+      if (aiLabel === 'LocalAI') c -= 25
+      return Math.max(20, c)
+    })(),
+  }
 
   // Phase 5: Run analysis pipeline
   console.log(`[LocalAnalyzer] Analyzing...`)
   const report: AnalysisReport = await analyzeRepository(repoInfo)
+  report.analysisMethod = analysisMethod
 
   // Phase 6: Save report
   if (!fs.existsSync(RESULTS_DIR)) fs.mkdirSync(RESULTS_DIR, { recursive: true })

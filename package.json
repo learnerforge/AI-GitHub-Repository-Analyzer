@@ -12,7 +12,8 @@
     "train:compact": "tsx workers/compactTrain.ts",
     "analyze:local": "tsx workers/localAnalyzer.ts",
     "analyze:batch": "tsx workers/batchAnalyzer.ts",
-    "analyze:parallel": "tsx workers/parallelBatch.ts"
+    "analyze:parallel": "tsx workers/parallelBatch.ts",
+    "evaluate:edges": "tsx workers/evaluateEdgeCases.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

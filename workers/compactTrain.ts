@@ -2,6 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { computeQualityScores, ScorerParams, getDefaultParams } from '../src/models/qualityScorer'
 import { RepoInfo } from '../src/types'
+import { generateSyntheticExperiences } from './syntheticData'
 
 const RESULTS_DIR = path.join(process.cwd(), 'analysis-results')
 const DATA_DIR = path.join(process.cwd(), 'training-data')
@@ -241,7 +242,7 @@ function computeClassWeight(report: any): number {
 
 function generateExperiences(
   reports: { report: any; file: string; issues: string[] }[]
-): { experiences: Experience[]; rejected: number; reasons: Record<string, number> } {
+): { experiences: Experience[]; rejected: number; reasons: Record<string, number>; stateKeys: Set<string> } {
   const experiences: Experience[] = []
   let rejected = 0
   const reasons: Record<string, number> = {}
@@ -280,7 +281,10 @@ function generateExperiences(
           nextState.repoForks = Math.max(0, state.repoForks + Math.round(delta * 100))
         }
 
-        const exp: Experience = { state, action: { paramName, delta }, reward: Math.round(reward * 1000) / 1000, nextState, timestamp: Date.now(), weight: computeClassWeight(report) }
+        const baseWeight = computeClassWeight(report)
+        const confidence = report.analysisMethod?.confidence ?? 100
+        const dataQualityWeight = 0.3 + 0.7 * (confidence / 100)
+        const exp: Experience = { state, action: { paramName, delta }, reward: Math.round(reward * 1000) / 1000, nextState, timestamp: Date.now(), weight: baseWeight * dataQualityWeight }
         const expIssues = validateExperience(exp)
         if (expIssues.length > 0) {
           rejected++
@@ -291,7 +295,7 @@ function generateExperiences(
       }
     }
   }
-  return { experiences, rejected, reasons }
+  return { experiences, rejected, reasons, stateKeys: seenStateKeys }
 }
 
 function splitDataset(experiences: Experience[], valRatio: number = 0.2): { train: Experience[]; val: Experience[] } {
@@ -567,8 +571,8 @@ async function main() {
 
   // 2. Generate experiences with quality filtering
   console.log('[2/6] Generating experiences...')
-  const { experiences, rejected, reasons } = generateExperiences(valid)
-  console.log(`  Generated: ${experiences.length}`)
+  const { experiences, rejected, reasons, stateKeys } = generateExperiences(valid)
+  console.log(`  Real experiences: ${experiences.length}`)
   console.log(`  Rejected: ${rejected}`)
   if (Object.keys(reasons).length > 0) {
     console.log('  Rejection reasons:')
@@ -576,6 +580,16 @@ async function main() {
       console.log(`    ${reason}: ${count}`)
     }
   }
+
+  // Add synthetic edge-case experiences
+  console.log('  Generating synthetic edge-case experiences...')
+  const { experiences: synthExperiences, added, skipped } = generateSyntheticExperiences(stateKeys)
+  if (synthExperiences.length > 0) {
+    experiences.push(...synthExperiences)
+    console.log(`  Synthetic added: ${added}, skipped (dup): ${skipped}`)
+  }
+  console.log(`  Total experiences: ${experiences.length}`)
+
   if (experiences.length === 0) { console.log('  No experiences. Exiting.'); process.exit(0) }
 
   // 3. Train/Validation split

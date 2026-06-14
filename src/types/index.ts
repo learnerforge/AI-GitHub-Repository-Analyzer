@@ -171,6 +171,13 @@ export interface CodeSmell {
   location?: string
 }
 
+export interface AnalysisMethod {
+  cloneMethod: 'full' | 'partial' | 'none'
+  apiData: 'full' | 'partial' | 'none'
+  aiProvider: 'gemini' | 'groq' | 'openai' | 'localai'
+  confidence: number
+}
+
 export interface AnalysisReport {
   id: string
   repoUrl: string
@@ -191,6 +198,7 @@ export interface AnalysisReport {
   status: 'pending' | 'processing' | 'completed' | 'failed'
   error?: string
   analysisSource?: 'github-api' | 'local-clone'
+  analysisMethod?: AnalysisMethod
   outlierAlerts?: string[]
   advancedSignals?: AdvancedSignals
 }

@@ -99,20 +99,28 @@ export class LocalAIProvider implements AIProvider {
   }
 
   private runWithHealing<T>(component: string, fn: () => T): T {
+    if (this.options.useSelfHealing && this.selfHealing.isCircuitTripped(component)) {
+      return this.selfHealing.getDefaultFor(component) as T
+    }
+
     let result = fn()
 
     if (this.options.useSelfHealing) {
-      const validation = this.selfHealing.validateComponent(component, result)
+      const strategy = this.selfHealing.getAdaptedStrategy(component)
+      const validation = this.selfHealing.validateComponent(component, result, strategy)
       if (!validation.valid) {
+        this.selfHealing.recordFailure(component)
         const healed = this.selfHealing.healOutput(component, result, validation)
         result = healed as T
 
         if (this.selfHealing.shouldRetry(component)) {
           this.selfHealing.recordRetry(component)
           const retryResult = fn()
-          const retryValidation = this.selfHealing.validateComponent(component, retryResult)
+          const retryStrategy = this.selfHealing.getAdaptedStrategy(component)
+          const retryValidation = this.selfHealing.validateComponent(component, retryResult, retryStrategy)
           if (retryValidation.valid || retryValidation.confidence > validation.confidence) {
             result = retryResult as T
+            this.selfHealing.resetCircuit(component)
           }
         }
       }
@@ -511,7 +519,8 @@ export class LocalAIProvider implements AIProvider {
         trialParams
       )
 
-      const reward = this.rl.computeReward(trialScores.overall, { errorRate: 0 })
+      const compHealth = this.selfHealing.getComponentHealth('qualityScores')
+      const reward = this.rl.computeReward(trialScores.overall, compHealth)
       const nextState: State = { ...state }
       nextState.repoStars = Math.max(0, state.repoStars + (action.paramName === 'communityWeight' ? Math.round(action.delta * 1000) : 0))
       nextState.repoForks = Math.max(0, state.repoForks + (action.paramName === 'communityWeight' ? Math.round(action.delta * 100) : 0))
