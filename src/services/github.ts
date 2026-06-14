@@ -33,7 +33,7 @@ async function fetchRepoTreeEntries(owner: string, name: string, branch: string)
     const api = getOctokit()
     const treeRes = await api.rest.git.getTree({ owner, repo: name, tree_sha: branch, recursive: '1' })
     if (treeRes.data.truncated) return []
-    return (treeRes.data.tree || []).filter(e => e.type !== 'commit')
+    return (treeRes.data.tree || []).filter((e: any) => e.type !== 'commit')
   } catch {
     return []
   }
