@@ -545,7 +545,7 @@ export function generateSyntheticExperiences(
           nextState.repoForks = Math.max(0, state.repoForks + Math.round(delta * 100))
         }
 
-        const weight = 3.0
+        const weight = 10.0
         experiences.push({
           state,
           action: { paramName, delta },

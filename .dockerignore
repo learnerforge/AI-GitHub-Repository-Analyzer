@@ -1,0 +1,13 @@
+node_modules
+.next
+analysis-results
+training-data
+model-checkpoints
+training-logs
+.tmp-clone
+.git
+.gitignore
+.env
+.env.local
+*.md
+.DS_Store

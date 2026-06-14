@@ -173,7 +173,7 @@ export interface CodeSmell {
 
 export interface AnalysisMethod {
   cloneMethod: 'full' | 'partial' | 'none'
-  apiData: 'full' | 'partial' | 'none'
+  apiData: 'full' | 'partial' | 'minimal' | 'none'
   aiProvider: 'gemini' | 'groq' | 'openai' | 'localai'
   confidence: number
 }

@@ -1,0 +1,43 @@
+{
+  "description": "Maps dead/renamed GitHub repositories to their current URLs",
+  "lastUpdated": "2026-06-14T18:00:00Z",
+  "mappings": {
+    "open-interpreter/open-interpreter": "openinterpreter/open-interpreter",
+    "polars-org/polars": "pola-rs/polars",
+    "OWASP/juice-shop": "juice-shop/juice-shop",
+    "suricata/suricata": "OISF/suricata",
+    "MozillaSecurity/ssl-config-generator": "mozilla/ssl-config-generator",
+    "OSGeo/geoserver": "GeoServer/geoserver",
+    "OSGeo/postgis": "postgis/postgis",
+    "qfieldcloud/qfieldcloud": "opengisch/qfieldcloud",
+    "astro-build/astro": "withastro/astro",
+    "sindresorhus/awesome-react": "enaqx/awesome-react",
+    "AnythingLLM/AnythingLLM": "Mintplex-Labs/anything-llm",
+    "NomicFoundation/gpt4all": "nomic-ai/gpt4all",
+    "julia-lang/julia": "JuliaLang/julia",
+    "plane-so/plane": "makeplane/plane",
+    "fathyb/fathom": "usefathom/fathom",
+    "cloudsplaining/cloudsplaining": "salesforce/cloudsplaining",
+    "hotosm/export-tool": "hotosm/raw-data-api",
+    "PrusaSlicer/PrusaSlicer": "prusa3d/PrusaSlicer",
+    "cura/Cura": "Ultimaker/Cura",
+    "MangoHud/MangoHud": "flightlessmango/MangoHud",
+    "drawio/drawio": "jgraph/drawio"
+  },
+  "permanentlyRemoved": [
+    "RadiantMLHub/radiant-earth-mlhub",
+    "farmbot/farmbot-os",
+    "AgStack/AgStack",
+    "eleaf-github/WOFOST",
+    "cropin-tech/cropin-open",
+    "agstack/agstack-sdk",
+    "AgML-CY/agml",
+    "farm-haystack/farm-haystack",
+    "OpenTEAMAg/soil-api",
+    "OpenTEAMAg/open-team",
+    "worldbank/agriculture-data",
+    "OSGeo/mapguide",
+    "OpenGeoLabs/gvSIG",
+    "supabase-community/supabase-cli"
+  ]
+}
