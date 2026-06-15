@@ -199,32 +199,23 @@ export default function AnalysisResults({ report, onReportUpdate }: AnalysisResu
 
       {/* Main grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="card">
-          <div className="card-body">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Tech Stack</h3>
-              {!editing && <FeedbackButtons section="techStack" />}
-            </div>
-            <TechStack techStack={editing ? editData.techStack : report.techStack} />
+        <TechStack techStack={editing ? editData.techStack : report.techStack} />
+        {editing ? (
+          <div className="card">
+            <div className="card-header">
+            <h3 className="text-lg font-semibold">Architecture</h3>
           </div>
-        </div>
-        <div className="card">
           <div className="card-body">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Architecture</h3>
-              {!editing && <FeedbackButtons section="architecture" />}
-            </div>
-            {editing ? (
               <textarea
                 value={editData.architecture}
                 onChange={e => setEditData({ ...editData, architecture: e.target.value })}
                 className="w-full min-h-[100px] p-3 border border-gray-200 rounded-lg text-gray-700 text-sm focus:ring-2 focus:ring-primary-200 focus:border-primary-400"
               />
-            ) : (
-              <ArchitectureSummary architecture={report.architecture} />
-            )}
+            </div>
           </div>
-        </div>
+        ) : (
+          <ArchitectureSummary architecture={report.architecture} />
+        )}
       </div>
 
       {/* Complexity + Health */}
@@ -243,13 +234,12 @@ export default function AnalysisResults({ report, onReportUpdate }: AnalysisResu
       <CodeSmells codeSmells={report.codeSmells} />
 
       {/* Suggestions */}
-      <div className="card">
-        <div className="card-body">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Suggestions</h3>
-            {!editing && <FeedbackButtons section="suggestions" />}
+      {editing ? (
+        <div className="card">
+          <div className="card-header">
+            <h3 className="text-lg font-semibold">Improvement Suggestions</h3>
           </div>
-          {editing ? (
+          <div className="card-body">
             <div className="space-y-2">
               {editData.suggestions.map((s, i) => (
                 <input
@@ -264,30 +254,29 @@ export default function AnalysisResults({ report, onReportUpdate }: AnalysisResu
                 />
               ))}
             </div>
-          ) : (
-            <ImprovementSuggestions suggestions={report.suggestions} />
-          )}
+          </div>
         </div>
-      </div>
+      ) : (
+        <ImprovementSuggestions suggestions={report.suggestions} />
+      )}
 
       {/* Onboarding Guide */}
-      <div className="card">
-        <div className="card-body">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Onboarding Guide</h3>
-            {!editing && <FeedbackButtons section="onboardingGuide" />}
+      {editing ? (
+        <div className="card">
+          <div className="card-header">
+            <h3 className="text-lg font-semibold">Onboarding Guide</h3>
           </div>
-          {editing ? (
+          <div className="card-body">
             <textarea
               value={editData.onboardingGuide}
               onChange={e => setEditData({ ...editData, onboardingGuide: e.target.value })}
               className="w-full min-h-[200px] p-3 border border-gray-200 rounded-lg text-gray-700 text-sm font-mono focus:ring-2 focus:ring-primary-200 focus:border-primary-400"
             />
-          ) : (
-            <OnboardingGuide guide={report.onboardingGuide} />
-          )}
+          </div>
         </div>
-      </div>
+      ) : (
+        <OnboardingGuide guide={report.onboardingGuide} />
+      )}
     </div>
   )
 }

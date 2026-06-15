@@ -29,23 +29,16 @@ export default function ComparePage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetch('/api/compare?repos=')
-      .catch(() => {
-        const names = new Set<string>()
-        const prefix = ['ajeetdsouza-zoxide','BurntSushi-ripgrep','denoland-deno','django-django','expressjs-express','fastapi-fastapi','huggingface-transformers','kubernetes-kubernetes','langchain-ai-langchain','nodejs-node','pallets-flask','sveltejs-svelte','tensorflow-tensorflow','vuejs-vue','tiangolo-fastapi']
-        prefix.forEach(n => names.add(n))
-        setAvailableRepos(Array.from(names).sort())
-      })
-      .then(() => {
-        const names = new Set<string>()
-        const known = [
-          'ajeetdsouza-zoxide','BurntSushi-ripgrep','denoland-deno','django-django','expressjs-express','fastapi-fastapi','huggingface-transformers','kubernetes-kubernetes','langchain-ai-langchain','nodejs-node','pallets-flask','sveltejs-svelte','tensorflow-tensorflow','vuejs-vue','tiangolo-fastapi',
-          'antonmedv-fx','crewAIInc-crewAI','comfyanonymous-ComfyUI','flet-dev-flet','ggerganov-llama.cpp','gin-gonic-gin','httpie-cli','jesseduffield-lazygit','jina-ai-jina','junegunn-fzf','langflow-ai-langflow','laravel-laravel','mlflow-mlflow','muesli-duf','nestjs-nest','oobabooga-text-generation-webui','open-webui-open-webui','postgres-postgres','rails-rails','ray-project-ray','redis-redis','rs-curlie','scikit-learn-scikit-learn','sharkdp-bat','sharkdp-fd','simonw-llm','torvalds-linux','yt-dlp-yt-dlp',
-          'apache-cassandra','duckdb-duckdb','mongodb-mongo','sqlite-sqlite',
-        ]
-        known.forEach(n => names.add(n))
-        setAvailableRepos(Array.from(names).sort())
-      })
+    const known = [
+      'ajeetdsouza-zoxide','BurntSushi-ripgrep','denoland-deno','django-django','expressjs-express','fastapi-fastapi','huggingface-transformers','kubernetes-kubernetes','langchain-ai-langchain','nodejs-node','pallets-flask','sveltejs-svelte','tensorflow-tensorflow','vuejs-vue','tiangolo-fastapi',
+      'antonmedv-fx','crewAIInc-crewAI','comfyanonymous-ComfyUI','flet-dev-flet','ggerganov-llama.cpp','gin-gonic-gin','httpie-cli','jesseduffield-lazygit','jina-ai-jina','junegunn-fzf','langflow-ai-langflow','laravel-laravel','mlflow-mlflow','muesli-duf','nestjs-nest','oobabooga-text-generation-webui','open-webui-open-webui','postgres-postgres','rails-rails','ray-project-ray','redis-redis','rs-curlie','scikit-learn-scikit-learn','sharkdp-bat','sharkdp-fd','simonw-llm','torvalds-linux','yt-dlp-yt-dlp',
+      'apache-cassandra','duckdb-duckdb','mongodb-mongo','sqlite-sqlite',
+    ]
+    setAvailableRepos([...known].sort())
+
+    fetch(`/api/compare?repos=${known.slice(0, 3).join(',')}`)
+      .then(res => res.json().catch(() => null))
+      .catch(() => {})
   }, [])
 
   const toggleRepo = (name: string) => {

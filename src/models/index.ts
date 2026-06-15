@@ -420,7 +420,18 @@ export class LocalAIProvider implements AIProvider {
         lastCommitDays,
         hasDockerfile: hasDocker,
         hasContributing: docs.hasContributing,
-        ...readmeMetrics,
+        headingCount: readmeMetrics.headingCount,
+        codeBlockCount: readmeMetrics.codeBlockCount,
+        imageCount: readmeMetrics.imageCount,
+        badgeCount: readmeMetrics.badgeCount,
+        emojiCount: readmeMetrics.emojiCount,
+        tableCount: readmeMetrics.tableCount,
+        checklistCount: readmeMetrics.checklistCount,
+        linkCount: readmeMetrics.linkCount,
+        todoCount: readmeMetrics.todoCount,
+        fixmeCount: readmeMetrics.fixmeCount,
+        hackCount: readmeMetrics.hackCount,
+        tempCount: readmeMetrics.tempCount,
       }
       const stateValidation = this.selfHealing.validateComponent('rlState', state)
       if (!stateValidation.valid) {
@@ -536,7 +547,18 @@ export class LocalAIProvider implements AIProvider {
       lastCommitDays,
       hasDockerfile: hasDocker,
       hasContributing,
-      ...readmeMetrics,
+      headingCount: readmeMetrics.headingCount,
+      codeBlockCount: readmeMetrics.codeBlockCount,
+      imageCount: readmeMetrics.imageCount,
+      badgeCount: readmeMetrics.badgeCount,
+      emojiCount: readmeMetrics.emojiCount,
+      tableCount: readmeMetrics.tableCount,
+      checklistCount: readmeMetrics.checklistCount,
+      linkCount: readmeMetrics.linkCount,
+      todoCount: readmeMetrics.todoCount,
+      fixmeCount: readmeMetrics.fixmeCount,
+      hackCount: readmeMetrics.hackCount,
+      tempCount: readmeMetrics.tempCount,
     }
 
     const baselineParams = this.rl.getCurrentParams()
@@ -553,10 +575,10 @@ export class LocalAIProvider implements AIProvider {
       )
 
       const compHealth = this.selfHealing.getComponentHealth('qualityScores')
-      const reward = this.rl.computeReward(trialScores.overall, compHealth)
+      const reward = this.rl.computeReward(trialScores.overall, compHealth.errorRate || 0)
       const nextState: State = { ...state }
-      nextState.repoStars = Math.max(0, state.repoStars + (action.paramName === 'communityWeight' ? Math.round(action.delta * 1000) : 0))
-      nextState.repoForks = Math.max(0, state.repoForks + (action.paramName === 'communityWeight' ? Math.round(action.delta * 100) : 0))
+      nextState.repoStars = Math.max(0, state.repoStars + (action.paramName === 'w_community' ? Math.round(action.delta * 1000) : 0))
+      nextState.repoForks = Math.max(0, state.repoForks + (action.paramName === 'w_community' ? Math.round(action.delta * 100) : 0))
 
       this.rl.storeExperience(state, action, reward, nextState)
     }

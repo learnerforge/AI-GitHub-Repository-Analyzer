@@ -65,6 +65,16 @@ export function extractHeadings(text: string): { level: number; text: string }[]
   return headings
 }
 
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/_([^_]+)_/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .trim()
+}
+
 export function extractFeatures(readme: string): string[] {
   const features: string[] = []
 
@@ -75,7 +85,7 @@ export function extractFeatures(readme: string): string[] {
     if (/features|what.*(does|can|this)|key.*(capabilit|feature|highlight)/i.test(header)) {
       const bullets = section.split('\n').filter(l => /^\s*[-*+]\s+/.test(l))
       for (const b of bullets) {
-        const cleaned = b.replace(/^\s*[-*+]\s+/, '').trim()
+        const cleaned = stripMarkdown(b.replace(/^\s*[-*+]\s+/, ''))
         if (cleaned.length > 10 && cleaned.length < 150) {
           features.push(cleaned.charAt(0).toUpperCase() + cleaned.slice(1))
         }
@@ -103,7 +113,7 @@ export function extractFeatures(readme: string): string[] {
         !trimmed.includes('─') &&
         !trimmed.includes('┌')
       ) {
-        features.push(trimmed.charAt(0).toUpperCase() + trimmed.slice(1))
+        features.push(stripMarkdown(trimmed.charAt(0).toUpperCase() + trimmed.slice(1)))
       }
     }
   }
@@ -143,7 +153,7 @@ export function extractOverview(readme: string, description: string | null): str
   const keywords = extractKeywords(clean, 5)
 
   if (description && description.length > 20) {
-    return description
+    return stripMarkdown(description)
   }
 
   // Try first paragraph after the main heading
@@ -173,12 +183,12 @@ export function extractOverview(readme: string, description: string | null): str
   }
 
   if (para.join(' ').length > 30) {
-    return para.join(' ').slice(0, 500)
+    return stripMarkdown(para.join(' ')).slice(0, 500)
   }
 
   if (sentences.length > 0) {
     const summarySentences = sentences.slice(0, Math.min(3, sentences.length))
-    return summarySentences.join(' ').replace(/^#+\s*/gm, '').replace(/\s+/g, ' ').trim().slice(0, 500)
+    return stripMarkdown(summarySentences.join(' ')).replace(/^#+\s*/gm, '').replace(/\s+/g, ' ').trim().slice(0, 500)
   }
 
   return clean.slice(0, 500)
