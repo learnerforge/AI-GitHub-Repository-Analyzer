@@ -4,10 +4,10 @@ import { computeQualityScores, ScorerParams, getDefaultParams } from '../src/mod
 import { RepoInfo } from '../src/types'
 import { generateSyntheticExperiences } from './syntheticData'
 
-const RESULTS_DIR = path.join(process.cwd(), 'analysis-results')
-const DATA_DIR = path.join(process.cwd(), 'training-data')
-const CHECKPOINT_DIR = path.join(process.cwd(), 'model-checkpoints')
-const LOG_DIR = path.join(process.cwd(), 'training-logs')
+const RESULTS_DIR = path.join(process.cwd(), 'data', 'results')
+const DATA_DIR = path.join(process.cwd(), 'data', 'training')
+const CHECKPOINT_DIR = path.join(process.cwd(), 'data', 'checkpoints')
+const LOG_DIR = path.join(process.cwd(), 'data', 'logs')
 
 const WEIGHT_DELTAS = [0.05, -0.05, 0.1, -0.1]
 

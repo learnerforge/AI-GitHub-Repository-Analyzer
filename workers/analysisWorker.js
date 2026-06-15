@@ -1,4 +1,4 @@
-const RESULTS_DIR = require('path').join(process.cwd(), 'analysis-results')
+const RESULTS_DIR = require('path').join(process.cwd(), 'data', 'results')
 const fs = require('fs')
 
 if (!fs.existsSync(RESULTS_DIR)) {

@@ -1,8 +1,8 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
-const CHECKPOINT_DIR = path.join(process.cwd(), 'model-checkpoints')
-const DATA_DIR = path.join(process.cwd(), 'training-data')
+const CHECKPOINT_DIR = path.join(process.cwd(), 'data', 'checkpoints')
+const DATA_DIR = path.join(process.cwd(), 'data', 'training')
 
 interface PersistedData {
   qTable: Record<string, Record<string, number>>

@@ -5,7 +5,7 @@ import { execSync } from 'child_process'
 import { RepoInfo, FileNode, AnalysisReport, AnalysisMethod } from '@/types'
 import { analyzeRepository } from '@/services/analyzer'
 
-const RESULTS_DIR = path.join(process.cwd(), 'analysis-results')
+const RESULTS_DIR = path.join(process.cwd(), 'data', 'results')
 const TMP_DIR = path.join(process.cwd(), '.tmp-clone')
 const CONCURRENCY = 3
 

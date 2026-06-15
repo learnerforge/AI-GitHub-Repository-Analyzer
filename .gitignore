@@ -58,8 +58,8 @@ yarn-debug.log*
 yarn-error.log*
 
 # Generated analysis data
-analysis-results/
-model-checkpoints/
-training-data/
-training-logs/
+data/results/
+data/checkpoints/
+data/training/
+data/logs/
 tsconfig.tsbuildinfo

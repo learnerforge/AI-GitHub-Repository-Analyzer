@@ -58,7 +58,7 @@ export default async function handler(
       return res.status(400).json({ error: 'At least 2 repo IDs required for comparison' })
     }
 
-    const resultsDir = path.join(process.cwd(), 'analysis-results')
+    const resultsDir = path.join(process.cwd(), 'data', 'results')
     if (!fs.existsSync(resultsDir)) {
       return res.status(404).json({ error: 'No analysis results found' })
     }

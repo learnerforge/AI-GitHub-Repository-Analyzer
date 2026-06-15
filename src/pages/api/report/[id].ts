@@ -4,7 +4,7 @@ import path from 'path'
 import { AnalysisReport } from '@/types'
 
 function findReportFile(id: string): string | null {
-  const resultsDir = path.join(process.cwd(), 'analysis-results')
+  const resultsDir = path.join(process.cwd(), 'data', 'results')
   if (!fs.existsSync(resultsDir)) return null
 
   const [owner, name] = id.split(':')

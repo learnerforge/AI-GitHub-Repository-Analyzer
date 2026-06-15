@@ -4,7 +4,7 @@ import { execSync } from 'child_process'
 import { RepoInfo, FileNode, AnalysisReport, AnalysisMethod } from '../src/types'
 import { analyzeRepository } from '../src/services/analyzer'
 
-const RESULTS_DIR = path.join(process.cwd(), 'analysis-results')
+const RESULTS_DIR = path.join(process.cwd(), 'data', 'results')
 const TMP_DIR = path.join(process.cwd(), '.tmp-clone')
 
 const LANGUAGE_MAP: Record<string, string> = {
@@ -262,7 +262,7 @@ async function analyzeOne(url: string): Promise<boolean> {
   const tag = aiLabel.toLowerCase()
   const filename = `${sanitizeName(owner)}-${sanitizeName(repoName)}-${tag}-${Date.now()}.json`
   fs.writeFileSync(path.join(RESULTS_DIR, filename), JSON.stringify(report, null, 2))
-  console.log(`[LocalAnalyzer] Report saved: analysis-results/${filename}`)
+  console.log(`[LocalAnalyzer] Report saved: data/results/${filename}`)
 
   // Phase 7: Cleanup
   console.log(`[LocalAnalyzer] Cleaning up...`)

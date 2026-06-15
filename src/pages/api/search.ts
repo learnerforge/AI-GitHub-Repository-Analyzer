@@ -48,7 +48,7 @@ export default async function handler(
       return res.status(200).json({ results: [], query: '' })
     }
 
-    const resultsDir = path.join(process.cwd(), 'analysis-results')
+    const resultsDir = path.join(process.cwd(), 'data', 'results')
     if (!fs.existsSync(resultsDir)) {
       return res.status(200).json({ results: [], query: q })
     }

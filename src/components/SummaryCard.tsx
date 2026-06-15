@@ -1,18 +1,17 @@
 import React from 'react'
-import { ProcessedReadme, HealthMetrics, QualityScores, TechStack } from '@/types'
-import { Star, GitFork, BookOpen, Wrench, BarChart3, Layers, Lightbulb, AlertTriangle, Shield, Code } from 'lucide-react'
+import { ProcessedReadme, HealthMetrics, QualityScores } from '@/types'
+import { Star, GitFork, BookOpen, BarChart3, Layers, Lightbulb, Shield, AlertTriangle } from 'lucide-react'
 
 interface SummaryCardProps {
   processed: ProcessedReadme
   health: HealthMetrics
   scores: QualityScores
-  techStack: TechStack
   repoName: string
   owner: string
   topics: string[]
 }
 
-export default function SummaryCard({ processed, health, scores, techStack, repoName, owner, topics }: SummaryCardProps) {
+export default function SummaryCard({ processed, health, scores, repoName, owner, topics }: SummaryCardProps) {
   const difficultyColors: Record<string, string> = {
     Beginner: 'bg-green-100 text-green-700 border-green-200',
     Intermediate: 'bg-blue-100 text-blue-700 border-blue-200',
@@ -84,44 +83,6 @@ export default function SummaryCard({ processed, health, scores, techStack, repo
             </div>
           </div>
         )}
-
-        {/* Tech Stack */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Code className="w-4 h-4 text-gray-400" />
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Tech Stack</span>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {techStack.languages.slice(0, 5).map(l => (
-                <span key={l.name} className="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs rounded-md">
-                  {l.name} {l.percentage > 0 && `${l.percentage}%`}
-                </span>
-              ))}
-              {processed.techKeywords.filter(k => !techStack.languages.some(l => l.name.toLowerCase() === k)).slice(0, 3).map(k => (
-                <span key={k} className="px-2 py-0.5 bg-gray-50 text-gray-500 text-xs rounded-md border border-gray-200">
-                  {k}
-                </span>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Wrench className="w-4 h-4 text-gray-400" />
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Frameworks &amp; Tools</span>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {[...techStack.frameworks, ...techStack.databases, ...techStack.tools].slice(0, 6).map(t => (
-                <span key={t} className="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs rounded-md">
-                  {t}
-                </span>
-              ))}
-              {techStack.frameworks.length + techStack.databases.length + techStack.tools.length === 0 && (
-                <span className="text-xs text-gray-400">Detected from README &amp; dependencies</span>
-              )}
-            </div>
-          </div>
-        </div>
 
         {/* Quick stats row */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

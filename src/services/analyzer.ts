@@ -352,6 +352,7 @@ export async function analyzeRepository(repo: RepoInfo): Promise<AnalysisReport>
     repoUrl: repo.url,
     repoName: repo.name,
     owner: repo.owner,
+    topics: repo.topics,
     summary: aiResult.summary,
     processedReadme,
     techStack: aiResult.techStack,

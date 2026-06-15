@@ -2,7 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { EDGE_CASE_METAS, generateSyntheticReports, getStateKey } from './syntheticData'
 
-const CHECKPOINT_DIR = path.join(process.cwd(), 'model-checkpoints')
+const CHECKPOINT_DIR = path.join(process.cwd(), 'data', 'checkpoints')
 
 interface QTable {
   qTable: Record<string, Record<string, number>>

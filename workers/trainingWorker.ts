@@ -1,8 +1,8 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
-const TRAINING_DATA_DIR = path.join(process.cwd(), 'training-data')
-const MODEL_EXPORT_DIR = path.join(process.cwd(), 'model-checkpoints')
+const TRAINING_DATA_DIR = path.join(process.cwd(), 'data', 'training')
+const MODEL_EXPORT_DIR = path.join(process.cwd(), 'data', 'checkpoints')
 
 interface TrainingExample {
   state: {

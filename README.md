@@ -5,7 +5,6 @@ Paste any GitHub URL, get back an instant analysis: tech stack, code quality, do
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![Next.js](https://img.shields.io/badge/Next.js-14-000000?logo=next.js&logoColor=white)](https://nextjs.org)
-[![GitHub Token](https://img.shields.io/badge/GitHub-Token-181717?logo=github&logoColor=white)](https://github.com/settings/tokens)
 
 ## Is this for me?
 
@@ -18,20 +17,20 @@ Paste any GitHub URL, get back an instant analysis: tech stack, code quality, do
 
 ### The core idea
 
-Enter a GitHub repository URL, and the analyzer fetches the repo metadata, README, file tree, and languages — then runs it through a deterministic AI pipeline. You get scored categories (code quality, documentation, maintainability, community health, security), a plain-English summary, detected tech stack, architecture patterns, code smells, and actionable improvement suggestions. All in under 30 seconds.
+Enter a GitHub repository URL. The analyzer fetches metadata, README, file tree, and languages, then runs a deterministic AI pipeline — summarizer, tech stack detector, architecture analyzer, code smell detector, quality scorer, self-healing layer, and RL parameter tuning. You get scored categories, a clean summary, detected tech stack, architecture patterns, code smells, and improvement suggestions. All in under 30 seconds.
 
 ### When you'd use this
 
 - Evaluating a library before pulling it into your stack.
 - Running a quarterly health check on your team's repos.
 - Onboarding a new hire and giving them instant context on your codebase.
-- Deciding whether a project is maintained and well-documented enough to contribute to.
+- Deciding whether a project is maintained enough to contribute to.
 
 ### What you're probably doing today instead
 
 - Scanning README files manually and hoping they cover everything.
 - Checking GitHub Insights tabs, stars, and commit graphs in separate tabs.
-- Running `cloc`, `tokei`, or `lizard` locally and stitching together results.
+- Running `cloc` or `tokei` locally and stitching results together.
 - Asking a teammate "is that repo any good?" and getting a subjective answer.
 
 ### Pain points it addresses
@@ -40,13 +39,12 @@ Enter a GitHub repository URL, and the analyzer fetches the repo metadata, READM
 - Subjective judgement — two people look at the same repo and disagree.
 - Documentation quality is hard to quantify without reading the whole README.
 - No easy way to compare multiple repos on the same criteria.
-- Every evaluation is lost knowledge — no saved report to revisit later.
 
 ### What changes in your architecture
 
 - One URL input replaces 5+ GitHub tabs and manual analysis.
-- The scoring model is deterministic and reproducible — same repo → same score.
-- Reports can be exported, compared, and revisited.
+- The scoring model is deterministic and reproducible — same repo, same score.
+- Reports can be exported, compared, and revisited later.
 - The RL system gradually tunes scoring weights based on real-world usage.
 
 ### When not to use it
@@ -54,77 +52,66 @@ Enter a GitHub repository URL, and the analyzer fetches the repo metadata, READM
 - The repo is a single-file script with no README.
 - You need deep static analysis (type errors, dead code, vulnerability scanning).
 - The repo is private and you can't provide a GitHub token with access.
-- You want AI-generated code summaries or natural-language Q&A about the codebase — the local model is rule-based, not generative.
 
 ### How it works
 
-1. Fetch repo metadata, file tree, languages, and README via the GitHub API.
-2. Run the input through a pipeline of specialized modules: summarizer, tech stack detector, architecture analyzer, code smell detector, quality scorer.
-3. All modules use deterministic rules and heuristics — no black-box ML.
-4. A self-healing layer validates every output and retries with adapted strategies on failure.
-5. An optional RL system tunes the scoring weights based on repo characteristics.
+1. Fetch repo metadata, file tree, languages, and README via the GitHub API (5 calls per analysis).
+2. Run the input through a pipeline of specialized modules — all deterministic rules and heuristics, no black-box ML.
+3. A self-healing layer validates every output and retries with adapted strategies on failure.
+4. An optional RL system tunes scoring weights based on repo characteristics.
 
 ### Limitations
 
-The analysis is based entirely on metadata, file structure, and README content — it never compiles or runs the code. The local model uses TextRank for summarization (extractive, not generative) and heuristic rules for scoring. This is fast and consistent, but less nuanced than a human or a large language model. For generative suggestions or deep code understanding, you can optionally plug in OpenAI.
+The analysis is based on metadata, file structure, and README content — it never compiles or runs the code. The local model uses TextRank (extractive, not generative) and heuristic scoring. For generative summaries or deep code understanding, you can optionally plug in OpenAI.
 
 ## Features
 
-- **Deterministic scoring** — 6 quality dimensions with weighted, reproducible scores.
-- **Tech stack detection** — Languages, frameworks, databases, tools, infrastructure — from files, README, dependencies, and GitHub topics.
-- **Architecture classification** — Detects Monorepo, Microservices, MVC, Clean Architecture, Serverless, Event-Driven, and more from directory structure.
-- **Documentation quality audit** — Scores README completeness across 10 sections (install, usage, API, contributing, license, etc.).
-- **Code smell detection** — 10 rule-based checks (no README, no tests, no CI, single contributor, stale dependencies, etc.).
-- **Self-healing** — Every analysis component validates its output. If something is wrong, the system corrects it, logs the failure, and retries with a different strategy.
-- **Reinforcement learning** — A Q-learning engine adjusts scoring weights over time based on repo characteristics (stars, file count, language diversity, etc.).
-- **Export** — Download any analysis as a Markdown report.
-- **Compare** — Side-by-side comparison of two repositories on the same criteria.
-- **Zero infrastructure** — Runs as a Next.js app. No database, no queue, no external AI service required.
+- **Deterministic scoring** — 6 quality dimensions with weighted, reproducible scores and transparent breakdowns.
+- **Tech stack detection** — Languages, frameworks, databases, tools, infrastructure from files, README, dependencies, and topics.
+- **Architecture classification** — Detects Monorepo, Microservices, MVC, Clean Architecture, Serverless, and more from directory structure.
+- **Documentation audit** — Scores README completeness across 10 sections, checks for contributing guide, license, changelog.
+- **Code smell detection** — 10 checks (no README, no tests, no CI, single contributor, stale dependencies, poor structure, etc.).
+- **Self-healing** — Every output is validated, corrected on failure, and retried with adapted strategies (relaxed → aggressive → minimal).
+- **Reinforcement learning** — Q-learning engine (27 state features, 10 actions) adjusts 5 scoring weights based on repo characteristics. Q-table persists to disk.
+- **Export & compare** — Download any analysis as Markdown. Compare two repos side by side.
 
 ## Quick Example
 
-Open the app, paste a GitHub URL, and click Analyze:
-
 ```
-https://github.com/facebook/react
+Input: https://github.com/facebook/react
+
+Overall:      82/100
+Code Quality: 75/100
+Documentation:68/100
+Maintainability:80/100
+Community:    95/100
+Security:     70/100
 ```
 
-Results in 10–30 seconds:
-
-| Dimension | Score |
-|-----------|-------|
-| Overall | 82/100 |
-| Code Quality | 75/100 |
-| Documentation | 68/100 |
-| Maintainability | 80/100 |
-| Community Health | 95/100 |
-| Security | 70/100 |
-
-Plus: detected tech stack, architecture patterns, code smells, improvement suggestions, and an onboarding guide.
+Plus: detected tech stack, architecture, code smells, improvement suggestions, and an onboarding guide.
 
 ## Setup
 
 ### Prerequisites
 
 - Node.js 18+
-- A [GitHub personal access token](https://github.com/settings/tokens) (optional — without one you get unauthenticated rate limits of 60 requests/hour)
+- A [GitHub token](https://github.com/settings/tokens) (optional — without one you get 60 unauthenticated requests/hour)
 
 ### Quick start
 
 ```bash
 git clone https://github.com/learnerforge/AI-GitHub-Repository-Analyzer.git
-cd ai-github-repo-analyzer
+cd AI-GitHub-Repository-Analyzer
 npm install
-cp .env.example .env
 npm run dev
 ```
 
-Open **http://localhost:3000**. Paste a URL. Click Analyze. That's it.
+Open http://localhost:3000, paste a URL, click Analyze. That's it.
 
-The app works out of the box with no API keys. The `.env` file is optional:
+The app works with no configuration. The `.env` file is optional:
 
 ```
-# Only if you want higher GitHub API rate limits (not required):
+# Only if you want higher GitHub rate limits:
 GITHUB_TOKEN=ghp_your_token_here
 ```
 
@@ -134,225 +121,148 @@ GITHUB_TOKEN=ghp_your_token_here
 docker compose up -d
 ```
 
-Builds and starts on port 3000. Environment variables come from `.env` or the compose file.
+Builds and starts on port 3000.
 
-## Packages and Releases
-
-Tagged releases publish to GitHub. Each release includes source archives and a `SHA256SUMS` file for verifying downloaded assets. The build pipeline produces an optimized standalone Next.js image.
-
-### Docker image
-
-The production `Dockerfile` builds a multi-stage image with standalone output. Git is included for clone-based analysis, and runtime directories (`analysis-results/`, `model-checkpoints/`) are writable. To build locally:
-
-```bash
-docker build -t repo-analyzer .
-docker run -p 3000:3000 repo-analyzer
-```
-
-Environment variables (`GITHUB_TOKEN`, etc.) can be passed with `-e` or an env file.
-
-### Published image
-
-The tagged Docker image is published to GitHub Container Registry on each release. Browse published images at [packages](https://github.com/learnerforge/ai-github-repo-analyzer/pkgs/container/ai-github-repo-analyzer).
-
-## One-Click Setup (Windows)
-
-A `scripts/setup.bat` script checks for Node.js, installs dependencies, creates the `.env` from `.env.example`, creates required directories, and verifies the TypeScript build — one command, no manual steps.
+### One-click setup (Windows)
 
 ```bash
 .\scripts\setup.bat
 ```
 
+Checks Node.js, installs deps, creates `.env`, creates directories, verifies build.
+
+## Packages
+
+Tagged releases publish to GitHub with source archives and a `SHA256SUMS` file. The Docker image is published to GitHub Container Registry.
+
+```bash
+docker build -t repo-analyzer .
+docker run -p 3000:3000 -e GITHUB_TOKEN=ghp_... repo-analyzer
+```
+
 ## Usage
 
-### Reading a report
+### Report sections
 
-Each report has these sections:
+| Section | What it shows |
+|---------|---------------|
+| Summary | Structured overview with difficulty badge, key features, quick stats |
+| Quality Scores | 6 circular gauges with detailed breakdowns |
+| Tech Stack | Languages with %, frameworks, databases, tools |
+| Architecture | Detected patterns and plain-English description |
+| Code Complexity | File/language breakdown, avg file size, nesting depth |
+| Documentation | Green/red checklist across 10 README sections |
+| Health | Stars, forks, contributors, recency, CI/CD, bus factor |
+| Code Smells | Color-coded issues (critical / warning / info) |
+| Suggestions | Prioritized, actionable recommendations |
+| Onboarding Guide | Auto-generated contributor guide |
 
-- **Summary** — Structured overview with difficulty badge, key features, tech stack chips, and quick stats (quality, docs, CI/CD, section coverage). No raw README text.
-- **Quality Scores** — 6 circular gauges (Overall, Code Quality, Documentation, Maintainability, Community, Security) with detailed breakdowns.
-- **Tech Stack** — Languages with percentages, frameworks, databases, tools, infrastructure.
-- **Architecture** — Detected patterns (MVC, Monorepo, Microservices, etc.) and a plain-English description.
-- **Code Complexity** — File/language breakdown with progress bars, average file size, nesting depth.
-- **Documentation** — Green/red checklist for README sections, plus a per-section doc score.
-- **Repository Health** — Stars, forks, contributors, recency, CI/CD, test coverage, bus factor.
-- **Code Smells** — Color-coded issues (red = critical, amber = warning, blue = info).
-- **Suggestions** — Prioritized, actionable recommendations.
-- **Onboarding Guide** — Auto-generated contributor guide with install, run, and contribute steps.
+### Export, compare, direct URLs
 
-### Export
-
-Click **Export Markdown** to download the full report as a `.md` file.
-
-### Compare
-
-Navigate to `/compare` and enter two repository URLs for side-by-side comparison across all scoring dimensions.
-
-### Direct report URL
-
-Reports are accessible at `/report/owner:name` — for example `/report/facebook:react`.
+- Click **Export Markdown** to download the report as `.md`.
+- Navigate to `/compare` for side-by-side repo comparison.
+- Access any report at `/report/owner:name` (e.g., `/report/facebook:react`).
 
 ## Architecture
 
-The analyzer is a Next.js app with three layers:
-
-```mermaid
-graph TB
-    subgraph Browser["Browser (React)"]
-        Pages["Pages<br/>index, report/[id], compare"]
-        Components["Components<br/>AnalysisResults, ScoreCard<br/>SummaryCard, TechStack"]
-    end
-
-    subgraph API["Next.js API Routes"]
-        Analyze["/api/analyze"]
-        Repos["/api/repos/[id]"]
-        Compare["/api/compare"]
-        Stats["/api/stats"]
-        Train["/api/train/*"]
-    end
-
-    subgraph GitHub["GitHub API (Octokit)"]
-        Meta["repos.get<br/>listLanguages<br/>listContributors"]
-        Readme["getReadme"]
-        Tree["git.getTree"]
-    end
-
-    subgraph AI["AI Pipeline"]
-        RP["README Processor"]
-        TS["TextRank Summarizer"]
-        TD["Tech Stack Detector"]
-        AA["Architecture Analyzer"]
-        CS["Code Smell Detector"]
-        QS["Quality Scorer"]
-        SH["Self-Healing Layer"]
-        RL["RL Parameter Tuning"]
-    end
-
-    Browser -->|POST /api/analyze| Analyze
-    Analyze --> GitHub
-    Analyze --> AI
-    GitHub --> AI
-    AI --> Report["AnalysisReport"]
-    Report --> Browser
+```
+  ┌──────────┐     ┌───────────────────┐     ┌──────────────────┐
+  │ Browser   │     │ Next.js API Route │     │   GitHub API     │
+  │ (React)   │────▶│ /api/analyze      │────▶│ (metadata, tree, │
+  │           │     │                   │     │  readme, langs)  │
+  └──────────┘     └───────────────────┘     └──────────────────┘
+                           │                           │
+                           │                           │
+                           ▼                           ▼
+                    ┌──────────────────┐     ┌──────────────────┐
+                    │  AI Pipeline     │     │  Scored Metrics  │
+                    │  (summarizer,    │     │  (complexity,    │
+                    │   detector,      │◀────│   docs, health,  │
+                    │   scorer, RL)    │     │   code smells)   │
+                    └──────────────────┘     └──────────────────┘
+                           │
+                           ▼
+                    ┌──────────────────┐
+                    │ Analysis Report  │
+                    │ (scores, stack,  │
+                    │  smells, guide)  │
+                    └──────────────────┘
 ```
 
-### Key design decisions
+Three layers: Browser sends a URL → Next.js API route fans out to GitHub API (metadata, file tree, README, languages) and the AI pipeline in parallel → results merge into a scored report. The default AI runs entirely in-process (TextRank, heuristic detectors, Q-learning) — zero network calls, zero cost. An `AIProvider` interface lets you swap in OpenAI, Gemini, or Groq.
 
-- **Local-first.** The default AI provider runs entirely in-process with deterministic algorithms — no API calls, no network, no cost.
-- **Plugin provider model.** The `AIProvider` interface makes it trivial to swap in OpenAI, Gemini, Groq, or a custom provider.
-- **Self-healing by default.** Every analysis component validates its output before returning. On failure, the system corrects, logs, and retries with adapted strategies.
-- **Scoring is transparent.** Every score has a `breakdown` field listing the factors and their contributions — no black box.
+Every output is validated before returning; on failure the system corrects, logs, and retries with relaxed → aggressive → minimal strategies. All scores include a `breakdown` field — no black box.
 
-## Local AI Model
+### Local AI modules
 
-When no cloud AI key is set, the app uses a built-in system with these modules:
+- **TextRank Summarizer** — Cosine-similarity matrix between sentences, PageRank (30 iterations, d=0.85), returns top 30% of sentences.
+- **Tech Stack Detector** — Matches file names, directories, dependencies, README content, and topics against 60+ technology patterns with confidence weights.
+- **Architecture Analyzer** — Scans directory structure for known patterns (`packages/` → Monorepo, `services/` → Microservices, `controllers/` → MVC).
+- **Code Smell Detector** — 10 independent rule checks, each returning a severity level.
+- **Quality Scorer** — 5 weighted dimensions (Code Quality 25%, Documentation 20%, Maintainability 20%, Community Health 20%, Security 15%).
+- **Self-Healing Layer** — Validate → correct → retry (up to 3×) → track. Component health logged and exposed via stats API.
+- **Reinforcement Learning** — Q-learning (27-state, 10-action) adjusts 5 scoring weights. ε-greedy exploration, mini-batch training, disk-persisted Q-table.
 
-### TextRank Summarizer
-Extractive summarization — builds a cosine-similarity matrix between sentences, runs PageRank (30 iterations, d=0.85), and returns the top 30% of sentences. Deterministic, fast, and completely offline.
-
-### Tech Stack Detector
-Matches file names, directory names, dependency files, README content, and GitHub topics against a database of 60+ technology patterns. Each pattern has a confidence weight and a category (language, framework, database, tool, infrastructure).
-
-### Architecture Analyzer
-Scans directory structure for known patterns: `packages/` → Monorepo, `services/` → Microservices, `controllers/` → MVC, `domain/` → Clean Architecture, etc. Also parses README for architectural keywords.
-
-### Code Smell Detector
-10 independent rule checks (no README, short README, no tests, no CI, single contributor, no license, many languages, no contributing guide, stale dependencies, poor structure). Each returns a severity level (critical, warning, info).
-
-### Quality Scorer
-Five weighted dimensions computed from heuristic rules:
-- **Code Quality (25%)** — Language diversity, file counts, file sizes, structure.
-- **Documentation (20%)** — README presence, length, section coverage, license, contributing guide.
-- **Maintainability (20%)** — Language count, file counts, total lines, directory depth.
-- **Community Health (20%)** — Stars, forks, contributor count, recent activity.
-- **Security (15%)** — Lock file, CI/CD, tests, license.
-
-### Self-Healing Layer
-Each module output goes through: validate → correct → retry (up to 3× with relaxed/aggressive/minimal strategies) → track. Component health is logged and exposed via the stats API.
-
-### Reinforcement Learning
-A Q-learning engine (27-state features, 10 actions) adjusts the 5 learnable scoring weights. It stores experiences, explores with ε-greedy, and trains in mini-batches. The Q-table is persisted to disk and reloaded on restart.
-
-## Batch Analysis
-
-The repo includes worker scripts for headless batch analysis:
+### Batch analysis
 
 ```bash
-# Analyze one or more repos
 npm run worker -- https://github.com/facebook/react
-
-# Train the RL model from collected feedback
 npm run train
-
-# Generate synthetic training data and retrain
 npm run train:compact
-
-# Run edge-case evaluation against the trained Q-table
 npm run evaluate:edges
 ```
 
-Results are saved as JSON in `analysis-results/`. The batch pipeline supports clone-based analysis fallback when the GitHub API is unavailable.
+Results saved as JSON in `analysis-results/`. Pipeline supports clone-based fallback when GitHub API is unavailable.
 
 ## Configuration
 
-### Environment variables
-
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `GITHUB_TOKEN` | — | GitHub personal access token (rate limit: 5,000/hr vs 60/hr) |
+| `GITHUB_TOKEN` | — | GitHub token (5,000/hr vs 60/hr unauthenticated) |
 | `OPENAI_API_KEY` | — | If set, uses OpenAI instead of local model |
-| `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model name |
-| `GEMINI_API_KEY` | — | If set, takes priority over OpenAI |
+| `GEMINI_API_KEY` | — | Takes priority over OpenAI |
 | `GROQ_API_KEY` | — | Fallback if Gemini is unavailable |
 
-The app works with **zero configuration**. Setting `GITHUB_TOKEN` is recommended for higher rate limits.
-
-### GitHub API usage
-
-The analyzer uses a minimal API strategy: 1 call for repo metadata, 1 for languages, 1 for contributors, 1 for README, and 1 for the full file tree (`git.getTree?recursive=1`). That's **5 calls per analysis** regardless of repo size. Compare this to a recursive directory crawl which would make 10–20+ calls for repos with many subdirectories.
+The app works with **zero configuration**. Setting `GITHUB_TOKEN` is recommended.
 
 ## Testing
 
 ```bash
-npm run lint           # ESLint
-npm run build          # TypeScript check + production build
-npx tsc --noEmit       # Type-check without emitting
+npm run lint       # ESLint
+npm run build      # TypeScript check + production build
+npx tsc --noEmit   # Type-check only
 ```
-
-The project doesn't have a test suite yet — contributions are welcome.
 
 ## Project Structure
 
 ```
-├── src/
-│   ├── pages/         Next.js pages and API routes
-│   ├── components/    React components (18 total)
-│   ├── services/      GitHub API client, AI provider selector, analysis pipeline
-│   ├── models/        Local AI modules (summarizer, tech detector, scorer, RL, etc.)
-│   ├── types/         TypeScript interfaces
-│   ├── utils/         Helper functions
-│   └── styles/        Global CSS
-├── workers/           Batch analysis and training scripts
-├── config/            Repo URL mappings, edge-case definitions
-├── scripts/           setup.bat, helper scripts
-└── model-checkpoints/ Persisted Q-table
+src/
+  pages/       Next.js pages and API routes
+  components/  React components
+  services/    GitHub API client, AI provider selector, pipeline
+  models/      Local AI modules (summarizer, scorer, RL, etc.)
+  types/       TypeScript interfaces
+  utils/       Helpers
+  styles/      Global CSS
+workers/       Batch analysis and training scripts
+config/        Repo URL mappings, edge-case definitions
+scripts/       setup.bat
+model-checkpoints/  Persisted Q-table
 ```
 
 ## Extending
 
 ### Add a technology pattern
 
-Open `src/models/knowledge.ts` and add to `techDatabase`:
-
 ```typescript
+// src/models/knowledge.ts
 { name: 'Svelte', category: 'framework', patterns: ['svelte', 'sveltekit'], confidence: 85 }
 ```
 
 ### Add a code smell rule
 
-Open `src/models/smellDetector.ts` and add to `SMELL_RULES`:
-
 ```typescript
+// src/models/smellDetector.ts
 {
   id: 'no-codeowners',
   severity: 'info',
@@ -365,8 +275,6 @@ Open `src/models/smellDetector.ts` and add to `SMELL_RULES`:
 
 ### Swap the AI provider
 
-Implement the `AIProvider` interface from `src/services/ai.ts`:
-
 ```typescript
 class MyProvider implements AIProvider {
   async analyze(input: AIAnalysisInput): Promise<AIAnalysisResult> {
@@ -375,26 +283,11 @@ class MyProvider implements AIProvider {
 }
 ```
 
-Then register it:
-
-```typescript
-// src/services/ai.ts
-return new MyProvider()
-```
-
-## Continuous Integration
-
-All pull requests must pass:
-
-1. `npx tsc --noEmit` — zero TypeScript errors.
-2. `npm run build` — production build succeeds.
-3. `npm run lint` — no lint warnings.
-
-The CI workflow is defined in `.github/workflows/ci.yml` (if present).
+Then register it in `src/services/ai.ts`.
 
 ## Status
 
-**Active** — This project is in active development. The local AI pipeline, self-healing, and RL systems are fully functional. Cloud AI integrations (OpenAI, Gemini, Groq) are available but rate-limited.
+**Active** — The local AI pipeline, self-healing, and RL systems are fully functional. Cloud AI integrations (OpenAI, Gemini, Groq) are available but rate-limited.
 
 ## Support
 
@@ -408,24 +301,9 @@ Use GitHub Issues for bug reports and feature requests.
 4. Push to the branch (`git push origin feature/my-feature`).
 5. Open a Pull Request.
 
+All PRs must pass: `npx tsc --noEmit`, `npm run build`, `npm run lint`.
+
 See the generated **Onboarding Guide** in the app for more details (it analyzes itself too).
-
-## FAQ
-
-**Q: Do I need an API key?**
-A: No. The app works fully offline with the built-in local AI model. Cloud AI is optional.
-
-**Q: How accurate is the local model?**
-A: The local model uses deterministic algorithms — TextRank summarization, rule-based tech detection, heuristic scoring. For most repos, tech detection and scoring are 85–95% accurate. Summarization is extractive (picks the best sentences) rather than generative.
-
-**Q: Does it work with private repos?**
-A: Yes, if you provide a `GITHUB_TOKEN` that has access to those repos.
-
-**Q: How does self-healing work?**
-A: Every component validates its output. If something is null, out of range, or incomplete, the system applies corrections, logs the failure, and retries (up to 3 times) with different strategies.
-
-**Q: How does reinforcement learning help?**
-A: The RL system adjusts scoring weights based on repo characteristics. A small utility repo gets scored differently than a large monorepo. The Q-table learns from experience which configurations produce the most validated scores.
 
 ## License
 

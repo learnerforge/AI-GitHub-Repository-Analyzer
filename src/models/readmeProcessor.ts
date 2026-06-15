@@ -94,14 +94,21 @@ export function extractFeatures(readme: string): string[] {
         !trimmed.startsWith('[') &&
         !trimmed.startsWith('http') &&
         !trimmed.startsWith('!') &&
-        !trimmed.includes('```')
+        !trimmed.startsWith('#') &&
+        !trimmed.startsWith('|') &&
+        !/^[┌─┐└┘│├┤┬┴┼▀▄█▌▐]/.test(trimmed) &&
+        !/```/.test(trimmed) &&
+        !/^[─=]{3,}$/.test(trimmed) &&
+        !trimmed.includes('|') &&
+        !trimmed.includes('─') &&
+        !trimmed.includes('┌')
       ) {
         features.push(trimmed.charAt(0).toUpperCase() + trimmed.slice(1))
       }
     }
   }
 
-  return [...new Set(features)].slice(0, 8)
+  return [...new Set(features)].slice(0, 6)
 }
 
 export function detectReadmeDifficulty(readme: string): 'Beginner' | 'Intermediate' | 'Advanced' {
@@ -152,8 +159,14 @@ export function extractOverview(readme: string, description: string | null): str
   const para: string[] = []
   for (let i = startIdx; i < lines.length; i++) {
     if (/^#/.test(lines[i])) break
-    const trimmed = lines[i].trim()
-    if (trimmed.length > 0 && !trimmed.startsWith('-') && !trimmed.startsWith('*')) {
+    const trimmed = lines[i].trim().replace(/^#{1,6}\s*/, '').trim()
+    if (
+      trimmed.length > 0 &&
+      !trimmed.startsWith('-') &&
+      !trimmed.startsWith('*') &&
+      !trimmed.startsWith('|') &&
+      !/^[┌─┐└┘│]/.test(trimmed)
+    ) {
       para.push(trimmed)
     }
     if (para.join(' ').length > 300) break
@@ -165,7 +178,7 @@ export function extractOverview(readme: string, description: string | null): str
 
   if (sentences.length > 0) {
     const summarySentences = sentences.slice(0, Math.min(3, sentences.length))
-    return summarySentences.join(' ').slice(0, 500)
+    return summarySentences.join(' ').replace(/^#+\s*/gm, '').replace(/\s+/g, ' ').trim().slice(0, 500)
   }
 
   return clean.slice(0, 500)

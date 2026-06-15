@@ -170,10 +170,9 @@ export default function AnalysisResults({ report, onReportUpdate }: AnalysisResu
           processed={report.processedReadme}
           health={report.health}
           scores={report.qualityScores}
-          techStack={report.techStack}
           repoName={report.repoName}
           owner={report.owner}
-          topics={[]}
+          topics={report.topics || []}
         />
       ) : (
         <div className="card">

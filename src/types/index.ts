@@ -183,6 +183,7 @@ export interface AnalysisReport {
   repoUrl: string
   repoName: string
   owner: string
+  topics: string[]
   summary: string
   techStack: TechStack
   architecture: string
