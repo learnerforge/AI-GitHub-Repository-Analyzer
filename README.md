@@ -112,7 +112,7 @@ Plus: detected tech stack, architecture patterns, code smells, improvement sugge
 ### Quick start
 
 ```bash
-git clone https://github.com/learnerforge/ai-github-repo-analyzer.git
+git clone https://github.com/learnerforge/AI-GitHub-Repository-Analyzer.git
 cd ai-github-repo-analyzer
 npm install
 cp .env.example .env
