@@ -19,36 +19,38 @@ export default function ScoreRing({ score, size = 120, strokeWidth = 8, label }:
     '#ef4444'
 
   return (
-    <div className="score-ring" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="transform -rotate-90">
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke="#e5e7eb"
-          strokeWidth={strokeWidth}
-        />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke={color}
-          strokeWidth={strokeWidth}
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          strokeLinecap="round"
-          className="transition-all duration-700 ease-out"
-        />
-      </svg>
-      <div className="score-value" style={{ color }}>
-        {score}
+    <div className="flex flex-col items-center gap-2">
+      <div className="score-ring" style={{ width: size, height: size }}>
+        <svg width={size} height={size} className="transform -rotate-90">
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke="#e5e7eb"
+            strokeWidth={strokeWidth}
+          />
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke={color}
+            strokeWidth={strokeWidth}
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+            strokeLinecap="round"
+            className="transition-all duration-700 ease-out"
+          />
+        </svg>
+        <div className="score-value" style={{ color }}>
+          {score}
+        </div>
       </div>
       {label && (
-        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 text-xs font-medium text-gray-500 mt-1">
+        <span className="text-xs font-medium text-gray-500 text-center leading-tight">
           {label}
-        </div>
+        </span>
       )}
     </div>
   )

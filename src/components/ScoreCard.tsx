@@ -24,16 +24,15 @@ export default function ScoreCard({ scores }: ScoreCardProps) {
         <h3 className="text-lg font-semibold">Quality Scores</h3>
       </div>
       <div className="card-body">
-        <div className="flex flex-wrap gap-8 justify-center">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-y-6 gap-x-4 justify-items-center">
           {metrics.map(({ key, label }) => (
-            <div key={key} className="flex flex-col items-center">
-              <ScoreRing
-                score={scores[key]}
-                size={key === 'overall' ? 140 : 100}
-                strokeWidth={key === 'overall' ? 10 : 6}
-                label={label}
-              />
-            </div>
+            <ScoreRing
+              key={key}
+              score={scores[key]}
+              size={key === 'overall' ? 140 : key === 'security' ? 100 : 100}
+              strokeWidth={key === 'overall' ? 10 : 6}
+              label={label}
+            />
           ))}
         </div>
       </div>

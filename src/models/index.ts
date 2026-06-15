@@ -130,25 +130,58 @@ export class LocalAIProvider implements AIProvider {
   }
 
   private generateSummaryInternal(input: AIAnalysisInput): string {
-    const textToSummarize = [
-      input.description || '',
-      input.readme || '',
-      `Topics: ${input.topics.join(', ')}`,
-      `Languages: ${Object.keys(input.languages).join(', ')}`,
-    ].filter(Boolean).join('\n\n')
+    const parts: string[] = []
 
-    if (!textToSummarize.trim()) {
-      return 'A code repository with multiple file types and organized project structure.'
+    const langNames = Object.keys(input.languages)
+    const totalBytes = langNames.reduce((s, l) => s + (input.languages[l] || 0), 0)
+    const starCount = input.stars ?? 0
+    const forkCount = input.forks ?? 0
+    const readmeLen = input.readme?.length ?? 0
+    const fileCount = countFiles(input.fileTree)
+    const depCount = Object.keys(input.dependencyFiles || {}).length
+
+    if (input.description) {
+      parts.push(input.description)
     }
 
-    const result = generateSummary(textToSummarize)
-
-    if (result.confidence < 30 && input.readme) {
-      const firstLines = input.readme.split('\n').slice(0, 5).join(' ').trim()
-      if (firstLines.length > 30) return firstLines
+    if (langNames.length > 0 && totalBytes > 0) {
+      const topLangs = langNames
+        .sort((a, b) => (input.languages[b] || 0) - (input.languages[a] || 0))
+        .slice(0, 4)
+        .map(l => `${l} (${Math.round(((input.languages[l] || 0) / totalBytes) * 100)}%)`)
+      parts.push(`Tech stack: ${topLangs.join(', ')}${input.topics.length ? ` — topics: ${input.topics.slice(0, 5).join(', ')}` : ''}.`)
+    } else if (input.topics.length > 0) {
+      parts.push(`Topics: ${input.topics.slice(0, 5).join(', ')}.`)
     }
 
-    return result.summary || textToSummarize.slice(0, 500)
+    if (readmeLen > 0) {
+      const headingCount = input.readme!.match(/^## /gm)?.length ?? 0
+      parts.push(`Documentation: ${headingCount} sections across ${readmeLen.toLocaleString()} characters.`)
+    } else {
+      parts.push('Documentation: no README found.')
+    }
+
+    if (starCount > 0 || forkCount > 0) {
+      parts.push(`Community: ${starCount.toLocaleString()} stars, ${forkCount.toLocaleString()} forks.`)
+    }
+
+    if (fileCount > 0) {
+      parts.push(`Repository spans ${fileCount} files${depCount > 0 ? ` across ${depCount} dependency manifests` : ''}.`)
+    }
+
+    let readmeInsights = ''
+    if (input.readme && input.readme.length > 100) {
+      const extracted = generateSummary(input.readme)
+      if (extracted.summary && extracted.summary.length > 60) {
+        readmeInsights = extracted.summary
+      }
+    }
+
+    const structured = parts.join(' ')
+    if (readmeInsights) {
+      return `${structured}\n\n${readmeInsights}`
+    }
+    return structured || 'A code repository with multiple file types and organized project structure.'
   }
 
   private detectTechStackInternal(input: AIAnalysisInput, totalBytes?: number): TechStack {

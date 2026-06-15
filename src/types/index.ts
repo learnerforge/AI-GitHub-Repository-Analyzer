@@ -201,6 +201,19 @@ export interface AnalysisReport {
   analysisMethod?: AnalysisMethod
   outlierAlerts?: string[]
   advancedSignals?: AdvancedSignals
+  processedReadme?: ProcessedReadme
+}
+
+export interface ProcessedReadme {
+  cleanText: string
+  overview: string
+  features: string[]
+  headings: { level: number; text: string }[]
+  hasInstallSection: boolean
+  hasUsageSection: boolean
+  hasApiSection: boolean
+  difficulty: 'Beginner' | 'Intermediate' | 'Advanced'
+  techKeywords: string[]
 }
 
 export interface QualityScores {

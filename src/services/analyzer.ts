@@ -1,6 +1,7 @@
 import { RepoInfo, AnalysisReport, ComplexityMetrics, DocsQuality, HealthMetrics, QualityScores, AIAnalysisInput, FileNode, AdvancedSignals, ReadmeLevelScores } from '@/types'
 import { createAIProvider, AIProvider } from './ai'
 import { computeReadmeLevelScores, classifyRepoPersonality, computeProjectCompleteness, computeOnboardingDifficulty, computeAbandonmentRisk, computeConfigComplexity, computeDocCoverage, computeContributorFriendliness, computeSecurityMaturity, computeDeploymentReadiness, computeLearningValue, computeReadmeCodeConsistency, computeTechDebtIndicators, computeMaintainabilityIndex } from '@/models/advancedSignals'
+import { processReadme } from '@/models/readmeProcessor'
 
 let aiProvider: AIProvider | null = null
 
@@ -344,12 +345,15 @@ export async function analyzeRepository(repo: RepoInfo): Promise<AnalysisReport>
     },
   }
 
+  const processedReadme = processReadme(repo.readmeContent, repo.description)
+
   return {
     id: `${repo.owner}/${repo.name}`,
     repoUrl: repo.url,
     repoName: repo.name,
     owner: repo.owner,
     summary: aiResult.summary,
+    processedReadme,
     techStack: aiResult.techStack,
     architecture: aiResult.architecture,
     complexity,

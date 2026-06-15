@@ -3,6 +3,7 @@ import { AnalysisReport } from '@/types'
 import { ExternalLink, Calendar, Clock, CheckCircle2, Edit3, GitCompare, Save, X, ThumbsUp, ThumbsDown } from 'lucide-react'
 import { formatDate } from '@/utils/helpers'
 import ScoreCard from './ScoreCard'
+import SummaryCard from './SummaryCard'
 import TechStack from './TechStack'
 import ArchitectureSummary from './ArchitectureSummary'
 import ComplexityMeter from './ComplexityMeter'
@@ -164,23 +165,35 @@ export default function AnalysisResults({ report, onReportUpdate }: AnalysisResu
       </div>
 
       {/* Summary */}
-      <div className="card">
-        <div className="card-body">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Summary</h3>
-            {!editing && <FeedbackButtons section="summary" />}
+      {report.processedReadme ? (
+        <SummaryCard
+          processed={report.processedReadme}
+          health={report.health}
+          scores={report.qualityScores}
+          techStack={report.techStack}
+          repoName={report.repoName}
+          owner={report.owner}
+          topics={[]}
+        />
+      ) : (
+        <div className="card">
+          <div className="card-body">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Summary</h3>
+              {!editing && <FeedbackButtons section="summary" />}
+            </div>
+            {editing ? (
+              <textarea
+                value={editData.summary}
+                onChange={e => setEditData({ ...editData, summary: e.target.value })}
+                className="w-full min-h-[100px] p-3 border border-gray-200 rounded-lg text-gray-700 text-sm focus:ring-2 focus:ring-primary-200 focus:border-primary-400"
+              />
+            ) : (
+              <p className="text-gray-700 leading-relaxed">{report.summary}</p>
+            )}
           </div>
-          {editing ? (
-            <textarea
-              value={editData.summary}
-              onChange={e => setEditData({ ...editData, summary: e.target.value })}
-              className="w-full min-h-[100px] p-3 border border-gray-200 rounded-lg text-gray-700 text-sm focus:ring-2 focus:ring-primary-200 focus:border-primary-400"
-            />
-          ) : (
-            <p className="text-gray-700 leading-relaxed">{report.summary}</p>
-          )}
         </div>
-      </div>
+      )}
 
       {/* Scores */}
       <ScoreCard scores={report.qualityScores} />
