@@ -11,10 +11,12 @@ def compute_readme_level_scores(readme: str, repo: dict, docs: dict) -> dict:
             'screenshots', 'contributing', 'testing', 'deployment', 'license', 'maintenance',
             'community', 'readability', 'advancedSignals', 'total',
         ]}
-    lower = readme.lower()
+    lower_raw = readme.lower()
+    clean = re.sub(r'```[\s\S]*?```', '', readme)
+    lower = clean.lower()
     lines = readme.split('\n')
     words = len(readme.split())
-    heading_count = len(re.findall(r'^## ', readme, re.MULTILINE))
+    heading_count = len(re.findall(r'^## ', clean, re.MULTILINE))
 
     l1 = _level1_existence(readme, words)
     l2 = _level2_identity(readme, lower, repo)
@@ -23,7 +25,7 @@ def compute_readme_level_scores(readme: str, repo: dict, docs: dict) -> dict:
     l5 = _level5_installation(lower, repo)
     l6 = _level6_usage(lower)
     l7 = _level7_examples(lower)
-    l8 = _level8_architecture(lower, repo)
+    l8 = _level8_architecture(lower_raw, repo)
     l9 = _level9_tech_stack(lower)
     l10 = _level10_configuration(lower, repo)
     l11 = _level11_api_docs(lower)
@@ -333,7 +335,8 @@ def _level20_advanced_signals(readme: str) -> float:
 
 
 def _section_content(lower: str, names: list[str]) -> str | None:
-    lines = lower.split('\n')
+    clean = re.sub(r'```[\s\S]*?```', '', lower)
+    lines = clean.split('\n')
     in_section = False
     content: list[str] = []
     for line in lines:
@@ -362,7 +365,7 @@ def classify_repo_personality(
     lang_count: int, is_doc_repo: bool,
 ) -> str:
     topics = [t.lower() for t in (repo.get('topics') or [])]
-    readme_lower = (repo.get('readmeContent') or '').lower()
+    readme_lower = re.sub(r'```[\s\S]*?```', '', (repo.get('readmeContent') or '').lower())
     dep_keys = list((repo.get('dependencyFiles') or {}).keys())
 
     if is_doc_repo or any(t in topics for t in ['education', 'learning', 'books', 'documentation', 'tutorial', 'awesome-list', 'curated']):
@@ -603,7 +606,7 @@ def compute_readme_code_consistency(
 
 
 def compute_tech_debt_indicators(repo: dict) -> dict:
-    readme = repo.get('readmeContent') or ''
+    readme = re.sub(r'```[\s\S]*?```', '', repo.get('readmeContent') or '')
     todos = len(re.findall(r'\bTODO\b', readme))
     fixmes = len(re.findall(r'\bFIXME\b', readme))
     hacks = len(re.findall(r'\bHACK\b', readme))

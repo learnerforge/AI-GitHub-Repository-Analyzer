@@ -54,6 +54,25 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; }
 .badge-red { color: #f85149; }
 .section-title { font-size: 1rem; font-weight: 600; color: #58a6ff; margin: 20px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #30363d; }
 .text-card { white-space: pre-wrap; font-size: 0.85rem; color: #c9d1d9; max-height: 200px; overflow-y: auto; }
+.compiled-readme { font-size: 0.9rem; line-height: 1.7; color: #e6edf3; }
+.compiled-readme h1, .compiled-readme h2, .compiled-readme h3, .compiled-readme h4 { color: #58a6ff; margin: 16px 0 8px; }
+.compiled-readme h1 { font-size: 1.5rem; border-bottom: 1px solid #30363d; padding-bottom: 6px; }
+.compiled-readme h2 { font-size: 1.25rem; }
+.compiled-readme h3 { font-size: 1.1rem; }
+.compiled-readme p { margin: 8px 0; }
+.compiled-readme pre { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px; overflow-x: auto; margin: 10px 0; }
+.compiled-readme code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 0.8rem; }
+.compiled-readme pre code { background: none; border: none; padding: 0; }
+.compiled-readme a { color: #58a6ff; text-decoration: underline; }
+.compiled-readme img { max-width: 100%; border-radius: 6px; margin: 8px 0; }
+.compiled-readme blockquote { border-left: 3px solid #30363d; padding-left: 12px; margin: 8px 0; color: #8b949e; }
+.compiled-readme table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+.compiled-readme th, .compiled-readme td { border: 1px solid #30363d; padding: 6px 10px; text-align: left; }
+.compiled-readme th { background: #21262d; color: #c9d1d9; font-weight: 600; }
+.compiled-readme ul, .compiled-readme ol { padding-left: 24px; margin: 6px 0; }
+.compiled-readme li { margin: 3px 0; }
+.compiled-readme hr { border: none; border-top: 1px solid #30363d; margin: 16px 0; }
+.compiled-readme strong { color: #f0f6fc; }
 @media (max-width: 768px) { .grid { grid-template-columns: 1fr 1fr; } .grid-3 { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -149,7 +168,7 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-bar button').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
-  event.target.classList.add('active');
+  document.querySelector(`.tab-bar button[onclick*="'${tab}'"]`).classList.add('active');
 }
 
 async function analyzeRepo() {
@@ -226,12 +245,31 @@ function renderReport(r, el) {
       ${sc('Tech Debt', 100 - (c.techDebtScore || 0))}
     </div>
 
+    <!-- Quick Stats Bar -->
+    <div class="section-title">Repository Stats</div>
+    <div class="grid">
+      ${sc('Stars', h.stars)}
+      ${sc('Forks', h.forks)}
+      ${sc('Watchers', h.watchers)}
+      ${sc('Open Issues', h.openIssues)}
+      ${sc('Contributors', h.contributorCount)}
+      ${sc('Topics', (r.topics || []).length)}
+    </div>
+
     <!-- Overview / Summary (text card) -->
     <div class="section-title">Overview</div>
     <div class="grid grid-3">
       <div class="card"><h3>Summary</h3><div class="text-card mt-10">${r.summary || 'No summary available.'}</div></div>
-      <div class="card"><h3>Architecture</h3><div class="text-card mt-10">${r.architecture || 'No architecture description.'}</div></div>
       <div class="card"><h3>Onboarding Guide</h3><div class="text-card mt-10">${r.onboardingGuide || 'No onboarding guide.'}</div></div>
+      <div class="card"><h3>Architecture</h3>
+        <div class="mt-10">
+          <div class="stat-row"><span>Pattern</span><span>${a.personality || r.architecture ? 'Custom' : 'Standard'}</span></div>
+          <div class="stat-row"><span>Total Dirs</span><span>${c.deepestNesting || 0} levels deep</span></div>
+          <div class="stat-row"><span>Language Count</span><span>${(ts.languages || []).length}</span></div>
+          <div class="stat-row"><span>Framework Count</span><span>${(ts.frameworks || []).length}</span></div>
+        </div>
+        <div class="text-card mt-10">${r.architecture ? r.architecture.slice(0, 300) : 'No architecture description.'}</div>
+      </div>
     </div>
 
     <!-- Processed README -->
@@ -249,11 +287,27 @@ function renderReport(r, el) {
     </div>
     ${(p.features || []).length ? '<div class="card"><h3>Key Features</h3><ul style="padding-left:20px;margin-top:8px">' + p.features.slice(0, 10).map(f => '<li class="text-sm">' + f + '</li>').join('') + '</ul></div>' : ''}
 
+    <!-- Deep README Analysis -->
+    ${renderDeepReadme(r.deepReadme)}
+
+    <!-- Contribution Guide -->
+    <div class="section-title">Contribution</div>
+    <div class="grid">
+      ${scb('Contributing Guide', d.hasContributing)}
+      ${scb('Code of Conduct', d.hasCodeOfConduct)}
+      ${scb('Changelog', d.hasChangelog)}
+      ${scb('Issue Templates', r.advancedSignals && r.advancedSignals.contributorFriendliness ? true : false)}
+      ${sc('Contributor Friendliness', a.contributorFriendliness || '-')}
+      ${sc('Code Smells', (r.codeSmells || []).length)}
+      ${sc('Suggestions', (r.suggestions || []).length)}
+    </div>
+
     <!-- Health Metrics (12 cards) -->
     <div class="section-title">Health Metrics</div>
     <div class="grid">
       ${sc('Stars', h.stars)}
       ${sc('Forks', h.forks)}
+      ${sc('Watchers', h.watchers)}
       ${sc('Open Issues', h.openIssues)}
       ${sc('Issues/Star', h.issuesPerStar != null ? h.issuesPerStar.toFixed(2) : '-')}
       ${sc('Contributors', h.contributorCount)}
@@ -330,8 +384,65 @@ function renderReport(r, el) {
     <div class="card text-sm text-muted">
       <span>Generated: ${r.generatedAt || ''}</span>
       <span class="ml-10">Source: ${r.analysisSource || ''}</span>
+      <span class="ml-10">Status: ${r.status || ''}</span>
+      <span class="ml-10">Smells: ${(r.codeSmells || []).length}</span>
     </div>
   `;
+}
+
+function renderDeepReadme(dr) {
+  if (!dr || !dr.sectionCount) return '';
+  const install = dr.installation || {};
+  const usage = dr.usage || {};
+  const api = dr.apiDocs || {};
+  const contrib = dr.contributing || {};
+  const lic = dr.license || {};
+  const toneLabel = dr.tone ? dr.tone.charAt(0).toUpperCase() + dr.tone.slice(1) : 'Neutral';
+  return `
+    <div class="section-title">Deep README Analysis</div>
+    <div class="grid">
+      ${sc('Sections', dr.sectionCount)}
+      ${sc('Headings', dr.headingCount)}
+      ${sc('Structure Score', dr.structureScore != null ? dr.structureScore.toFixed(0) + '%' : '-')}
+      ${sc('Readability', dr.readability != null ? dr.readability.toFixed(1) : '-')}
+      ${sc('Sentences', dr.sentences)}
+      ${sc('Total Words', dr.totalWords)}
+      ${sc('Tone', toneLabel)}
+      ${sc('Code Blocks', dr.codeBlockCount)}
+      ${sc('Tagged Code', dr.taggedCodeBlockCount)}
+      ${sc('Inline Code', dr.inlineCodeCount)}
+      ${sc('Tables', dr.tableCount)}
+      ${sc('Images', dr.imageCount)}
+      ${sc('Badges', dr.badgeCount)}
+      ${sc('Badge Services', dr.uniqueBadgeServices)}
+      ${sc('Total Links', dr.linkCount)}
+      ${sc('Placeholder Links', dr.placeholderLinkCount)}
+      ${sc('Installation', install.score != null ? install.score + '%' : '-' )}
+      ${sc('Usage Examples', usage.score != null ? usage.score + '%' : '-' )}
+      ${sc('API Docs', api.score != null ? api.score + '%' : '-' )}
+      ${sc('Contributing', contrib.score != null ? contrib.score + '%' : '-' )}
+      ${sc('License', lic.identified ? lic.license : 'None')}
+      ${scb('Security Policy', dr.hasSecurityPolicy)}
+      ${scb('Discord', dr.hasDiscord)}
+      ${scb('Sponsor Section', dr.hasSponsorSection)}
+      ${scb('Roadmap', dr.hasRoadmap)}
+      ${sc('FIXMEs', dr.fixmeCount)}
+      ${sc('TODOs', dr.todoCount)}
+      ${sc('HACKs', dr.hackCount)}
+      ${sc('TEMPs', dr.tempCount)}
+    </div>
+    ${renderScoreList('Badge Breakdown', dr.badges)}
+  `;
+}
+
+function renderScoreList(heading, items) {
+  if (!items || !items.length) return '';
+  const counts = {};
+  items.forEach(function(it) { var k = it.language || it.service; counts[k] = (counts[k] || 0) + 1; });
+  const sorted = Object.entries(counts).sort(function(a, b) { return b[1] - a[1]; });
+  return '<div class="card"><h3>' + heading + '</h3><div class="mt-10 text-sm">' +
+    sorted.map(function(s) { return '<span class="pill">' + s[0] + ': ' + s[1] + '</span>'; }).join('') +
+    '</div></div>';
 }
 
 function sc(label, value) {

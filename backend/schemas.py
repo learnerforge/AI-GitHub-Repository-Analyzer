@@ -1,5 +1,4 @@
 from __future__ import annotations
-from datetime import datetime
 from typing import Any
 from pydantic import BaseModel, Field
 
@@ -125,13 +124,6 @@ class CodeSmell(BaseModel):
     location: str | None = None
 
 
-class AnalysisMethod(BaseModel):
-    cloneMethod: str = 'none'
-    apiData: str = 'full'
-    aiProvider: str = 'localai'
-    confidence: float = 1.0
-
-
 class ProjectCompleteness(BaseModel):
     hasReadme: bool = False
     hasSourceCode: bool = False
@@ -238,7 +230,8 @@ class AnalysisReport(BaseModel):
     status: str = 'pending'
     error: str | None = None
     analysisSource: str | None = None
-    analysisMethod: AnalysisMethod | None = None
     outlierAlerts: list[str] | None = None
     advancedSignals: AdvancedSignals | None = None
     processedReadme: ProcessedReadme | None = None
+    deepReadme: dict = Field(default_factory=dict)
+    compiledReadme: str = ''

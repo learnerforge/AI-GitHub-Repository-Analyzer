@@ -40,7 +40,7 @@ def compute_readme_metrics(readme: str) -> dict:
                                 'todoCount', 'fixmeCount', 'hackCount', 'tempCount']}
     import re
     heading_count = len(re.findall(r'^## ', readme, re.MULTILINE))
-    code_block_count = (len(re.findall(r'```', readme)) or 0) / 2
+    code_block_count = len(re.findall(r'```', readme)) / 2
     image_count = len(re.findall(r'!\[.*?\]\(.*?\)', readme)) + len(re.findall(r'<img\s', readme, re.IGNORECASE))
     badge_count = len(re.findall(r'https?://img\.shields\.io/', readme)) + len(re.findall(r'https?://badge\.', readme))
     emoji = re.findall(r'[\U0001F300-\U0001F9FF\U00002600-\U000027BF\U0001F600-\U0001F64F\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\U0000FE00-\U0000FE0F]', readme)

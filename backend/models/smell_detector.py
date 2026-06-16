@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+def _find_in_tree(tree: list[dict], predicate) -> bool:
+    for node in tree:
+        if predicate(node):
+            return True
+        if node.get('children') and _find_in_tree(node['children'], predicate):
+            return True
+    return False
+
+
 SMELL_RULES: list[dict] = [
     {
         'id': 'no-readme', 'severity': 'critical', 'category': 'Documentation',
@@ -43,7 +52,7 @@ SMELL_RULES: list[dict] = [
         'description': 'No license file found. Legal ambiguity for users and contributors.',
         'check': lambda inp: (
             'license' not in inp.get('readmeContent', '').lower()
-            and not any('license' in f.lower() for f in inp.get('dependencyFiles', {}))
+            and not _find_in_tree(inp.get('fileTree', []), lambda n: 'license' in n.get('name', '').lower())
         ),
     },
     {
@@ -58,7 +67,7 @@ SMELL_RULES: list[dict] = [
         'description': 'Missing CONTRIBUTING.md helps standardize contributions.',
         'check': lambda inp: (
             'contribut' not in inp.get('readmeContent', '').lower()
-            and not any('contribut' in f.lower() for f in inp.get('dependencyFiles', {}))
+            and not _find_in_tree(inp.get('fileTree', []), lambda n: 'contribut' in n.get('name', '').lower())
         ),
     },
     {

@@ -15,6 +15,37 @@ from .reinforcement import (
 )
 from .readme_processor import process_readme
 from .text_analyzer import extract_keywords
+from .deep_readme import analyze_readme_deep
+from .md_compiler import compile_markdown
+
+
+def _strip_markdown(text: str) -> str:
+    if not text:
+        return ''
+    text = re.sub(r'```[\s\S]*?```', '', text)
+    text = re.sub(r'```[\s\S]*?```', '', text)
+    text = re.sub(r'``([^`]+)``', r'\1', text)
+    text = re.sub(r'`([^`]+)`', r'\1', text)
+    text = re.sub(r'!\[([^\]]*)\]\([^)]+\)', '', text)
+    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
+    text = re.sub(r'<https?://[^>]+>', '', text)
+    text = re.sub(r'https?://[^\s)]+', '', text)
+    text = re.sub(r'(?<!\w)#{1,6}\s+', '', text)
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    text = re.sub(r'\*(.+?)\*', r'\1', text)
+    text = re.sub(r'~~(.+?)~~', r'\1', text)
+    text = re.sub(r'(?<!\w)[-*_]{3,}(?!\w)', '', text)
+    text = re.sub(r'\|[^\n]*\|[\s]*', '', text)
+    text = re.sub(r'(?<!\w)[-*+]\s+(?![\s])', '', text)
+    text = re.sub(r'(?<!\d)\d+[.)]\s+', '', text)
+    text = re.sub(r'>\s+', '', text)
+    text = re.sub(r'`[^`]+`', '', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r'\s+\.', '.', text)
+    text = re.sub(r'\.\s+\.', '.', text)
+    text = re.sub(r'\.{2,}', '.', text)
+    return text.strip()
 
 
 class LocalAIProvider:
@@ -66,6 +97,9 @@ class LocalAIProvider:
         onboarding_guide = self._run_with_healing('onboardingGuide', lambda: self._generate_onboarding(input_data, tech_stack, arch_result))
         quality_scores = self._run_with_healing('qualityScores', lambda: self._score_quality(input_data, tech_stack, code_smells, has_tests, has_ci, lang_count, total_bytes))
 
+        deep_readme = self._run_with_healing('deepReadme', lambda: analyze_readme_deep(readme))
+        compiled_readme = self._run_with_healing('compiledReadme', lambda: compile_markdown(readme))
+
         if self.options['useReinforcementLearning']:
             self._run_reinforcement_learning(input_data, quality_scores)
 
@@ -80,6 +114,8 @@ class LocalAIProvider:
             'suggestions': suggestions,
             'onboardingGuide': onboarding_guide,
             'qualityScores': quality_scores,
+            'deepReadme': deep_readme,
+            'compiledReadme': compiled_readme,
         }
 
     def _run_with_healing(self, component: str, fn: callable) -> Any:
@@ -139,9 +175,24 @@ class LocalAIProvider:
 
         readme_insights = ''
         if readme and len(readme) > 100:
-            extracted = generate_summary(readme)
+            clean_for_summary = re.sub(r'```[\s\S]*?```', '', readme)
+            clean_for_summary = re.sub(r'```[\s\S]*?```', '', clean_for_summary)
+            clean_for_summary = re.sub(r'^[|\\/].*$', '', clean_for_summary, flags=re.MULTILINE)
+            clean_for_summary = re.sub(r'^\s*[\-]{2,}.*$', '', clean_for_summary, flags=re.MULTILINE)
+            clean_for_summary = re.sub(r'\n{3,}', '\n\n', clean_for_summary)
+            extracted = generate_summary(clean_for_summary)
             if extracted.get('summary') and len(extracted['summary']) > 60:
-                readme_insights = extracted['summary']
+                cleaned = _strip_markdown(extracted['summary'])
+                cleaned = re.sub(r'(?<!\w)[-]{2,}(?!\w)', '', cleaned)
+                cleaned = re.sub(r'\b(?:actor|participant|sequenceDiagram|end|activate|deactivate|Note\s+over|loop|alt|opt|rect|par)\b[\s\S]*?(?=\n|$)', '', cleaned, flags=re.IGNORECASE)
+                cleaned = re.sub(r'\s*->>?\s*', ' ', cleaned)
+                cleaned = re.sub(r'\s+', ' ', cleaned)
+                cleaned = re.sub(r'\.{2,}', '.', cleaned)
+                cleaned = cleaned.strip()
+                if len(cleaned) > 60:
+                    readme_insights = cleaned
+                if len(cleaned) > 60:
+                    readme_insights = cleaned
 
         structured = ' '.join(parts)
         return f'{structured}\n\n{readme_insights}' if readme_insights else (structured or 'A code repository with multiple file types and organized project structure.')
@@ -174,11 +225,15 @@ class LocalAIProvider:
         for f in file_tree:
             if f.get('name') in names or '.test.' in f.get('name', '') or '.spec.' in f.get('name', ''):
                 return True
+            if f.get('children') and self._detect_has_tests(f['children']):
+                return True
         return False
 
     def _detect_has_ci(self, file_tree: list) -> bool:
         for f in file_tree:
             if '.github/workflows' in f.get('path', ''):
+                return True
+            if f.get('children') and self._detect_has_ci(f['children']):
                 return True
         return False
 
@@ -214,8 +269,8 @@ class LocalAIProvider:
 
     def _generate_onboarding(self, input_data: dict, tech_stack: dict, arch_result: dict) -> str:
         repo = {
-            'url': f'https://github.com/{input_data.get("topics", ["owner"])[0] if input_data.get("topics") else "owner"}/repo',
-            'name': input_data.get('name', 'repository'),
+            'url': f'https://github.com/{input_data.get("id", "unknown/repository")}',
+            'name': input_data.get('id', 'repository').split('/')[-1] if '/' in input_data.get('id', '') else 'repository',
             'description': input_data.get('description', ''),
             'languages': input_data.get('languages', {}),
             'fileTree': input_data.get('fileTree', []),
@@ -430,6 +485,9 @@ class LocalAIProvider:
             action = self.rl.select_action(state, 0.4)
             trial_params = self.rl.apply_action(baseline, action)
             merged = self.rl.merge_with_defaults(trial_params, state)
+            total_bytes = sum(input_data.get('languages', {}).values())
+            total_lines = max(1, total_bytes // 50)
+            avg_file_size = round(total_lines / max(1, file_count))
             trial = compute_quality_scores(
                 input_data.get('languages', {}),
                 input_data.get('fileTree', []),
@@ -438,7 +496,7 @@ class LocalAIProvider:
                 state['repoStars'], state['repoForks'], state['contributorCount'],
                 state['hasTests'], state['hasCI'], input_data.get('pushedAt', ''),
                 merged,
-                {'fileCount': file_count, 'averageFileSize': 0, 'totalLines': 0},
+                {'fileCount': file_count, 'averageFileSize': avg_file_size, 'totalLines': total_lines},
                 {'readmeScore': readme_score, 'hasReadme': len(readme) > 0, 'readmeLength': len(readme),
                  'hasContributing': has_contributing, 'hasCodeOfConduct': False, 'hasLicense': has_license,
                  'hasChangelog': False, 'hasApiDocs': has_api, 'hasWiki': False,
@@ -451,9 +509,6 @@ class LocalAIProvider:
             health = self.self_healing.get_component_health('qualityScores')
             reward = self.rl.compute_reward(trial.get('overall', 50), health['errorRate'])
             next_state = dict(state)
-            if action['paramName'] == 'communityWeight':
-                next_state['repoStars'] = max(0, state['repoStars'] + round(action['delta'] * 1000))
-                next_state['repoForks'] = max(0, state['repoForks'] + round(action['delta'] * 100))
             self.rl.store_experience(state, action, reward, next_state)
         self.rl.train_multiple(3, 16)
         self.rl.persist()

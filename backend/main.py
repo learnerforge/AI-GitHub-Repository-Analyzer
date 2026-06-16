@@ -22,13 +22,18 @@ app.add_middleware(
 
 app.include_router(router, prefix='/api')
 
-static_dir = Path(__file__).resolve().parent.parent / 'static'
+static_dir = Path(__file__).resolve().parent.parent / 'frontend'
 static_dir.mkdir(exist_ok=True)
 
 
 @app.get('/health')
 async def health():
     return {'status': 'ok', 'version': '2.0.0'}
+
+
+@app.get('/favicon.ico')
+async def favicon():
+    return FileResponse(static_dir / 'favicon.ico') if (static_dir / 'favicon.ico').exists() else ''
 
 
 @app.get('/')

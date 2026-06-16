@@ -45,7 +45,8 @@ def _strip_markdown(text: str) -> str:
 
 def extract_features(readme: str) -> list[str]:
     features: list[str] = []
-    sections = re.split(r'\n#{1,3}\s+', readme)
+    clean = re.sub(r'```[\s\S]*?```', '', readme)
+    sections = re.split(r'\n#{1,3}\s+', clean)
     for section in sections:
         header = section.split('\n')[0].lower()
         if re.search(r'features|what.*(does|can|this)|key.*(capabilit|feature|highlight)', header):
@@ -60,9 +61,17 @@ def extract_features(readme: str) -> list[str]:
             if (15 < len(trimmed) < 120 and not trimmed.startswith('[')
                     and not trimmed.startswith('http') and not trimmed.startswith('!')
                     and not trimmed.startswith('#') and not trimmed.startswith('|')
+                    and not trimmed.startswith('Subgraph') and not trimmed.startswith('subgraph')
+                    and not trimmed.startswith('end') and not trimmed.startswith('Note')
                     and not re.match(r'^[┌─┐└┘│├┤┬┴┼▀▄█▌▐]', trimmed)
                     and '```' not in trimmed and not re.match(r'^[─=]{3,}$', trimmed)
-                    and '|' not in trimmed and '─' not in trimmed and '┌' not in trimmed):
+                    and '|' not in trimmed and '─' not in trimmed and '┌' not in trimmed
+                    and '->' not in trimmed and '--' not in trimmed
+                    and not re.match(r'^[A-Z][A-Z0-9]*\[', trimmed)
+                    and '["' not in trimmed and '\"]' not in trimmed
+                    and not re.match(r'^[A-Za-z]+\s+as\s+', trimmed)
+                    and 'participant' not in trimmed.lower()
+                    and 'actor' not in trimmed.lower()):
                 features.append(_strip_markdown(trimmed[0].upper() + trimmed[1:]))
     seen: list[str] = []
     for f in features:
@@ -71,10 +80,14 @@ def extract_features(readme: str) -> list[str]:
     return seen[:6]
 
 
+def _strip_blocks(text: str) -> str:
+    return re.sub(r'```[\s\S]*?```', '', text)
+
+
 def detect_readme_difficulty(readme: str) -> str:
     if not readme:
         return 'Intermediate'
-    lower = readme.lower()
+    lower = _strip_blocks(readme.lower())
     score = 0
     advanced = ['kubernetes', 'distributed', 'microservice', 'docker compose',
                 'multi-thread', 'asynchronous', 'websocket', 'real-time', 'oauth', 'jwt',
@@ -136,7 +149,7 @@ def extract_tech_keywords(readme: str) -> list[str]:
         'jest', 'mocha', 'cypress', 'playwright', 'pandas', 'numpy', 'scikit-learn',
         'opencv', 'llm', 'gpt', 'openai', 'langchain', 'hugging face', 'transformers',
     ]
-    lower = readme.lower()
+    lower = _strip_blocks(readme.lower())
     found: list[str] = []
     for term in tech_terms:
         if term in lower and term not in found:
@@ -155,7 +168,7 @@ def process_readme(readme: str, description: str | None) -> dict:
     features = extract_features(readme)
     overview = extract_overview(readme, description)
     tech_keywords = extract_tech_keywords(readme)
-    lower = readme.lower() if readme else ''
+    lower = _strip_blocks(readme.lower() if readme else '')
     return {
         'cleanText': clean_text,
         'overview': overview,

@@ -150,19 +150,26 @@ async def train_feedback(body: FeedbackRequest):
         from ..services.analyzer import analyze_repository
         report = await analyze_repository(repo)
         from ..models.reinforcement import compute_readme_metrics, quantize_state
+        complexity = report.get('complexity', {}) or {}
+        health = report.get('health', {}) or {}
+        docs = report.get('docsQuality', {}) or {}
         readme = repo.get('readmeContent', '') or ''
         state = {
             'repoStars': repo.get('stars', 0) or 0,
             'repoForks': repo.get('forks', 0) or 0,
-            'fileCount': len(repo.get('fileTree', []) or []),
+            'fileCount': complexity.get('fileCount', len(repo.get('fileTree', []) or [])),
             'languageCount': len(repo.get('languages', {})),
             'readmeLength': len(readme),
             'contributorCount': len(repo.get('contributors', []) or []),
-            'hasTests': False, 'hasCI': False,
-            'readmeScore': 50, 'docsSectionCount': 0,
+            'hasTests': health.get('hasTests', False),
+            'hasCI': health.get('hasCI', False),
+            'readmeScore': docs.get('readmeScore', 50) or 50,
+            'docsSectionCount': docs.get('sectionCount', 0) or 0,
             'hasApiDocs': 'api' in readme.lower(),
-            'hasLicense': 'license' in readme.lower(),
-            'lastCommitDays': 30, 'hasDockerfile': False, 'hasContributing': False,
+            'hasLicense': 'license' in readme.lower() or docs.get('hasLicense', False),
+            'lastCommitDays': health.get('lastCommitDays', 30) or 30,
+            'hasDockerfile': health.get('hasDockerfile', False),
+            'hasContributing': docs.get('hasContributing', False),
             **compute_readme_metrics(readme),
         }
         action = reinforcement_learner.select_action(state, 0.3)
@@ -179,6 +186,7 @@ def _report_to_state(report: dict) -> dict | None:
     qs = report.get('qualityScores', {}) or {}
     health = report.get('health', {}) or {}
     complexity = report.get('complexity', {}) or {}
+    docs = report.get('docsQuality', {}) or {}
     from ..models.reinforcement import compute_readme_metrics
     readme = ''
     pr = report.get('processedReadme', {}) or {}
@@ -194,12 +202,12 @@ def _report_to_state(report: dict) -> dict | None:
         'contributorCount': health.get('contributorCount', 0) or 0,
         'hasTests': health.get('hasTests', False),
         'hasCI': health.get('hasCI', False),
-        'readmeScore': qs.get('documentation', 50) or 50,
-        'docsSectionCount': 0,
+        'readmeScore': docs.get('readmeScore', 50) or 50,
+        'docsSectionCount': docs.get('sectionCount', 0) or 0,
         'hasApiDocs': 'api' in readme.lower(),
-        'hasLicense': 'license' in readme.lower(),
+        'hasLicense': 'license' in readme.lower() or docs.get('hasLicense', False),
         'lastCommitDays': health.get('lastCommitDays', 30) or 30,
-        'hasDockerfile': False,
-        'hasContributing': False,
+        'hasDockerfile': health.get('hasDockerfile', False),
+        'hasContributing': docs.get('hasContributing', False),
         **rr,
     }

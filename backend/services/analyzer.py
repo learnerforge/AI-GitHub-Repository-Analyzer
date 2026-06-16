@@ -2,8 +2,6 @@ from __future__ import annotations
 import json
 import math
 import re
-import time
-from pathlib import Path
 from datetime import datetime, timezone
 from ..config import RESULTS_DIR
 from ..schemas import AnalysisReport
@@ -11,15 +9,6 @@ from ..models.local_ai import LocalAIProvider
 
 
 ai_provider = LocalAIProvider()
-
-
-def _find_in_tree(nodes: list[dict], predicate) -> bool:
-    for n in nodes:
-        if predicate(n):
-            return True
-        if n.get('children') and _find_in_tree(n['children'], predicate):
-            return True
-    return False
 
 
 def _compute_max_depth(nodes: list[dict], depth: int = 0) -> int:
@@ -35,7 +24,6 @@ def _compute_complexity(repo: dict) -> dict:
     file_count = 0
     test_file_count = 0
     api_endpoint_count = 0
-    walk_all = lambda nodes: None
 
     def walk_all_fn(nodes):
         nonlocal file_count, test_file_count, api_endpoint_count
@@ -99,13 +87,32 @@ def _compute_complexity(repo: dict) -> dict:
     }
 
 
+def _collect_names(nodes: list[dict]) -> list[str]:
+    names: list[str] = []
+    for n in nodes:
+        names.append(n.get('name', '').lower())
+        if n.get('children'):
+            names.extend(_collect_names(n['children']))
+    return names
+
+
+def _find_file(nodes: list[dict], name: str) -> bool:
+    for n in nodes:
+        if name in n.get('path', '') or n.get('name', '').lower() == name.lower():
+            return True
+        if n.get('children') and _find_file(n['children'], name):
+            return True
+    return False
+
+
 def _compute_docs_quality(repo: dict) -> dict:
     readme = repo.get('readmeContent', '') or ''
-    lower = readme.lower()
-    heading_count = len(re.findall(r'^## ', readme, re.MULTILINE))
+    clean = re.sub(r'```[\s\S]*?```', '', readme)
+    lower = clean.lower()
+    heading_count = len(re.findall(r'^## ', clean, re.MULTILINE))
     has_good = heading_count >= 3
     has_heading = heading_count >= 1
-    file_names = [f.get('name', '').lower() for f in (repo.get('fileTree', []) or [])]
+    all_names = _collect_names(repo.get('fileTree', []) or [])
 
     readme_score = 0
     if readme:
@@ -121,17 +128,22 @@ def _compute_docs_quality(repo: dict) -> dict:
         if has_good and 'install' not in lower: score += 10
         readme_score = min(100, score)
 
+    has_contributing = 'contributing.md' in all_names
+    has_code_of_conduct = 'code_of_conduct.md' in all_names
+    has_license = repo.get('license') is not None or 'license.md' in all_names
+    has_changelog = 'changelog.md' in all_names or 'changelog' in all_names
+
     section_coverage = [
         {'section': 'Description', 'present': len(readme) > 50},
         {'section': 'Installation', 'present': 'install' in lower or (has_heading and heading_count >= 2)},
         {'section': 'Usage', 'present': 'usage' in lower or 'example' in lower or (has_heading and heading_count >= 3)},
         {'section': 'API Documentation', 'present': 'api' in lower or (has_heading and heading_count >= 4)},
         {'section': 'Configuration', 'present': 'config' in lower or (has_heading and heading_count >= 5)},
-        {'section': 'Contributing', 'present': 'contributing.md' in file_names or 'contributing' in lower},
-        {'section': 'License', 'present': 'license' in lower or repo.get('license') is not None},
-        {'section': 'Code of Conduct', 'present': 'code_of_conduct.md' in file_names},
-        {'section': 'Changelog', 'present': 'changelog.md' in file_names or 'changelog' in file_names},
-        {'section': 'Tests', 'present': 'test' in lower or any(f.get('name') in ['tests', '__tests__'] for f in (repo.get('fileTree', []) or []))},
+        {'section': 'Contributing', 'present': has_contributing or 'contributing' in lower},
+        {'section': 'License', 'present': has_license or 'license' in lower},
+        {'section': 'Code of Conduct', 'present': has_code_of_conduct},
+        {'section': 'Changelog', 'present': has_changelog},
+        {'section': 'Tests', 'present': 'test' in lower or any(f in all_names for f in ['tests', '__tests__'])},
     ]
 
     suggestions = []
@@ -146,13 +158,16 @@ def _compute_docs_quality(repo: dict) -> dict:
     if not any(s['section'] == 'License' and s['present'] for s in section_coverage):
         suggestions.append('Add a license file')
 
+    section_count = sum(1 for s in section_coverage if s['present'])
+
     return {
         'readmeScore': readme_score, 'hasReadme': bool(readme),
-        'readmeLength': len(readme), 'hasContributing': 'contributing.md' in file_names,
-        'hasCodeOfConduct': 'code_of_conduct.md' in file_names,
-        'hasLicense': repo.get('license') is not None or 'license.md' in file_names,
-        'hasChangelog': 'changelog.md' in file_names, 'hasApiDocs': 'api' in lower,
+        'readmeLength': len(readme), 'hasContributing': has_contributing,
+        'hasCodeOfConduct': has_code_of_conduct,
+        'hasLicense': has_license,
+        'hasChangelog': has_changelog, 'hasApiDocs': 'api' in lower,
         'hasWiki': False, 'sectionCoverage': section_coverage, 'suggestions': suggestions,
+        'sectionCount': section_count,
     }
 
 
@@ -204,6 +219,8 @@ def _compute_health(repo: dict) -> dict:
         for n in nodes:
             if '.github/workflows' in n.get('path', ''):
                 return True
+            if n.get('children') and _has_ci(n['children']):
+                return True
         return False
 
     def _has_tests(nodes):
@@ -212,15 +229,18 @@ def _compute_health(repo: dict) -> dict:
                 return True
             if n.get('type') == 'blob' and (re.search(r'\.(test|spec)\.\w+$', n.get('name', '')) or re.match(r'^test_.*\.\w+$', n.get('name', ''))):
                 return True
+            if n.get('children') and _has_tests(n['children']):
+                return True
         return False
 
     return {
-        'overall': overall, 'stars': stars, 'forks': forks, 'openIssues': open_issues,
+        'overall': overall, 'stars': stars, 'forks': forks, 'watchers': repo.get('watchers', 0) or 0, 'openIssues': open_issues,
         'issuesPerStar': round(issues_per_star, 2), 'lastCommitDays': last_commit_days,
         'hasRecentActivity': last_commit_days < 90, 'contributorCount': contributor_count,
         'busFactor': bus_factor, 'releaseCount': 0,
         'hasCI': _has_ci(file_tree),
         'hasTests': _has_tests(file_tree),
+        'hasDockerfile': _find_file(file_tree, 'Dockerfile'),
     }
 
 
@@ -250,8 +270,10 @@ async def analyze_repository(repo: dict) -> dict:
     max_readme = 20000
     chunked = readme[:max_readme] + '\n\n<!-- README TRUNCATED -->' if len(readme) > max_readme else readme
 
-    fixme_count = len(re.findall(r'\bFIXME\b', readme))
-    todo_count = len(re.findall(r'\bTODO\b', readme))
+    clean_readme = re.sub(r'```[\s\S]*?```', '', readme)
+
+    fixme_count = len(re.findall(r'\bFIXME\b', clean_readme))
+    todo_count = len(re.findall(r'\bTODO\b', clean_readme))
     tech_debt = min(100, round(math.log2(max(1, fixme_count + todo_count)) * 15))
 
     ai_input = {
@@ -265,6 +287,7 @@ async def analyze_repository(repo: dict) -> dict:
         'forks': repo.get('forks', 0),
         'contributorCount': len(repo.get('contributors', []) or []),
         'pushedAt': repo.get('pushedAt', ''),
+        'id': repo.get('id', ''),
     }
 
     ai_result = ai_provider.analyze(ai_input)
@@ -292,7 +315,7 @@ async def analyze_repository(repo: dict) -> dict:
     doc_repo = lang_count == 0 and total_blobs > 0 and len(readme) > 200
     has_tests = health['hasTests']
     has_ci = health['hasCI']
-    heading_count = len(re.findall(r'^## ', readme, re.MULTILINE))
+    heading_count = len(re.findall(r'^## ', clean_readme, re.MULTILINE))
 
     file_paths = [f.get('path', '') for f in ft]
     has_issue_templates = any('issue_template' in p or '.github/ISSUE_TEMPLATE' in p for p in file_paths)
@@ -305,11 +328,11 @@ async def analyze_repository(repo: dict) -> dict:
         'abandonmentRisk': compute_abandonment_risk(health['lastCommitDays'], health['hasRecentActivity'], health['contributorCount'], health['stars'], health['overall']),
         'configComplexity': compute_config_complexity(dep_keys),
         'docCoverage': compute_doc_coverage(repo),
-        'contributorFriendliness': compute_contributor_friendliness(readme.lower(), file_names, has_issue_templates, has_pr_templates),
-        'securityMaturity': compute_security_maturity(repo, readme.lower(), has_ci),
-        'deploymentReadiness': compute_deployment_readiness(dep_keys, has_ci, has_tests, readme.lower()),
+        'contributorFriendliness': compute_contributor_friendliness(clean_readme.lower(), file_names, has_issue_templates, has_pr_templates),
+        'securityMaturity': compute_security_maturity(repo, clean_readme.lower(), has_ci),
+        'deploymentReadiness': compute_deployment_readiness(dep_keys, has_ci, has_tests, clean_readme.lower()),
         'learningValue': compute_learning_value(readme, heading_count, total_blobs, doc_repo),
-        'readmeCodeConsistency': compute_readme_code_consistency(readme.lower(), dep_keys, ai_result['techStack']),
+        'readmeCodeConsistency': compute_readme_code_consistency(clean_readme.lower(), dep_keys, ai_result['techStack']),
         'techDebtIndicators': compute_tech_debt_indicators(repo),
         'maintainabilityIndex': compute_maintainability_index(complexity['deepestNesting'], total_blobs, complexity['averageFileSize'], has_tests, has_ci, bool(readme)),
     }
@@ -382,6 +405,8 @@ async def analyze_repository(repo: dict) -> dict:
         'analysisSource': 'local-clone' if (stars := repo.get('stars', 0)) == 0 and repo.get('forks', 0) == 0 and len(repo.get('contributors', []) or []) == 0 else 'github-api',
         'outlierAlerts': outlier_alerts if outlier_alerts else None,
         'advancedSignals': advanced_signals,
+        'deepReadme': ai_result.get('deepReadme', {}),
+        'compiledReadme': ai_result.get('compiledReadme', ''),
     }
 
     _save_report(report)
@@ -435,7 +460,16 @@ def search_reports(query: str, limit: int = 20) -> list[dict]:
     for f in RESULTS_DIR.glob('*.json'):
         try:
             data = json.loads(f.read_text(encoding='utf-8'))
-            if q in (data.get('repoName', '') or '').lower() or q in (data.get('owner', '') or '').lower():
+            repo_name = (data.get('repoName', '') or '').lower()
+            owner = (data.get('owner', '') or '').lower()
+            topics = ' '.join(data.get('topics', []) or []).lower()
+            summary = (data.get('summary', '') or '').lower()
+            description = (data.get('description', '') or '').lower()
+            techs = ''
+            ts = data.get('techStack', {}) or {}
+            for cat in ['frameworks', 'databases', 'tools', 'infrastructure']:
+                techs += ' '.join(ts.get(cat, []) or []).lower()
+            if q in repo_name or q in owner or q in topics or q in summary[:500] or q in description or q in techs:
                 matches.append(data)
         except Exception:
             pass
@@ -444,6 +478,7 @@ def search_reports(query: str, limit: int = 20) -> list[dict]:
         'id': m.get('id', ''),
         'repoName': m.get('repoName', ''),
         'owner': m.get('owner', ''),
+        'description': (m.get('description', '') or '')[:150],
         'score': m.get('qualityScores', {}).get('overall', 0),
         'summary': (m.get('summary', '') or '')[:200],
         'generatedAt': m.get('generatedAt', ''),
