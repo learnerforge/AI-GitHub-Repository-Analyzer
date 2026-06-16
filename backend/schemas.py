@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Contributor(BaseModel):
@@ -25,11 +25,11 @@ class LanguageInfo(BaseModel):
 
 
 class TechStack(BaseModel):
-    languages: list[LanguageInfo]
-    frameworks: list[str]
-    databases: list[str]
-    tools: list[str]
-    infrastructure: list[str]
+    languages: list[LanguageInfo] = Field(default_factory=list)
+    frameworks: list[str] = Field(default_factory=list)
+    databases: list[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
+    infrastructure: list[str] = Field(default_factory=list)
 
 
 class ComplexityMetrics(BaseModel):

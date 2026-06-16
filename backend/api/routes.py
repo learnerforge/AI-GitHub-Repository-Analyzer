@@ -189,7 +189,7 @@ def _report_to_state(report: dict) -> dict | None:
         'repoStars': health.get('stars', 0) or 0,
         'repoForks': health.get('forks', 0) or 0,
         'fileCount': complexity.get('fileCount', 0) or 0,
-        'languageCount': complexity.get('fileCount', 0) or 0,
+        'languageCount': len(report.get('techStack', {}).get('languages', []) or []),
         'readmeLength': len(readme),
         'contributorCount': health.get('contributorCount', 0) or 0,
         'hasTests': health.get('hasTests', False),

@@ -444,6 +444,7 @@ def search_reports(query: str, limit: int = 20) -> list[dict]:
         'id': m.get('id', ''),
         'repoName': m.get('repoName', ''),
         'owner': m.get('owner', ''),
-        'overall': m.get('qualityScores', {}).get('overall', 0),
+        'score': m.get('qualityScores', {}).get('overall', 0),
+        'summary': (m.get('summary', '') or '')[:200],
         'generatedAt': m.get('generatedAt', ''),
     } for m in matches[:limit]]

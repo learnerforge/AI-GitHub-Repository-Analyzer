@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitHub Repository Analyzer</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #c9d1d9; line-height: 1.6; }
+.container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+h1 { color: #58a6ff; font-size: 1.8rem; }
+h2 { color: #58a6ff; font-size: 1.3rem; margin: 20px 0 10px; }
+h3 { color: #c9d1d9; font-size: 1rem; margin: 10px 0 5px; }
+.card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; margin: 10px 0; }
+input, select, textarea { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 8px 12px; border-radius: 6px; font-size: 14px; width: 100%; }
+button { background: #238636; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+button:hover { background: #2ea043; }
+button.secondary { background: #21262d; border: 1px solid #30363d; }
+button.secondary:hover { background: #30363d; }
+button.danger { background: #da3633; }
+button.danger:hover { background: #f85149; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.grid-3 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.score { text-align: center; padding: 15px; }
+.score-value { font-size: 2rem; font-weight: bold; color: #58a6ff; }
+.score-label { font-size: 0.8rem; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
+.tab-bar { display: flex; gap: 4px; margin: 10px 0; flex-wrap: wrap; }
+.tab-bar button { border-radius: 6px 6px 0 0; background: #21262d; padding: 8px 16px; }
+.tab-bar button.active { background: #238636; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+pre { background: #0d1117; padding: 10px; border-radius: 6px; overflow-x: auto; font-size: 12px; }
+code { font-family: 'SFMono-Regular', Consolas, monospace; }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; background: #21262d; border: 1px solid #30363d; margin: 2px; }
+.mt-10 { margin-top: 10px; }
+.mb-10 { margin-bottom: 10px; }
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.gap-10 { gap: 10px; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.w-full { width: 100%; }
+.text-center { text-align: center; }
+.text-sm { font-size: 0.85rem; }
+.text-muted { color: #8b949e; }
+.loading { opacity: 0.6; pointer-events: none; }
+.stat-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; }
+.stat-value { font-size: 1.3rem; font-weight: 600; color: #e6edf3; }
+.stat-label { font-size: 0.75rem; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
+.stat-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid #21262d; }
+.stat-row:last-child { border-bottom: none; }
+.badge-green { color: #3fb950; }
+.badge-yellow { color: #d29922; }
+.badge-red { color: #f85149; }
+.section-title { font-size: 1rem; font-weight: 600; color: #58a6ff; margin: 20px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #30363d; }
+.text-card { white-space: pre-wrap; font-size: 0.85rem; color: #c9d1d9; max-height: 200px; overflow-y: auto; }
+@media (max-width: 768px) { .grid { grid-template-columns: 1fr 1fr; } .grid-3 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="flex items-center justify-between">
+    <h1>GitHub Repo Analyzer</h1>
+    <div class="text-sm text-muted" id="version"></div>
+  </div>
+
+  <div class="tab-bar">
+    <button class="active" onclick="switchTab('analyze')">Analyze</button>
+    <button onclick="switchTab('search')">Search</button>
+    <button onclick="switchTab('compare')">Compare</button>
+    <button onclick="switchTab('stats')">RL Stats</button>
+  </div>
+
+  <!-- Analyze Tab -->
+  <div id="tab-analyze" class="tab-content active">
+    <div class="card">
+      <div class="flex gap-10">
+        <input type="text" id="repoUrl" placeholder="https://github.com/owner/repo" style="flex:1">
+        <button onclick="analyzeRepo()" id="analyzeBtn">Analyze</button>
+      </div>
+    </div>
+    <div id="result"></div>
+  </div>
+
+  <!-- Search Tab -->
+  <div id="tab-search" class="tab-content">
+    <div class="card">
+      <div class="flex gap-10">
+        <input type="text" id="searchQuery" placeholder="Search repositories..." style="flex:1">
+        <button onclick="searchRepos()">Search</button>
+      </div>
+    </div>
+    <div id="searchResult"></div>
+  </div>
+
+  <!-- Compare Tab -->
+  <div id="tab-compare" class="tab-content">
+    <div class="card">
+      <p class="text-muted mb-10">Enter repo URLs separated by commas:</p>
+      <div class="flex gap-10">
+        <input type="text" id="compareUrls" placeholder="owner/repo, owner/repo2" style="flex:1">
+        <button onclick="compareRepos()">Compare</button>
+      </div>
+    </div>
+    <div id="compareResult"></div>
+  </div>
+
+  <!-- Stats Tab -->
+  <div id="tab-stats" class="tab-content">
+    <div class="card">
+      <button onclick="loadStats()">Refresh Stats</button>
+      <div id="statsResult" class="mt-10"></div>
+    </div>
+    <div class="card">
+      <h3>Give Feedback</h3>
+      <div class="flex gap-10 mt-10" style="align-items:end">
+        <div style="flex:1">
+          <label class="text-sm text-muted">Repo URL</label>
+          <input type="text" id="feedbackUrl" placeholder="https://github.com/owner/repo">
+        </div>
+        <div>
+          <label class="text-sm text-muted">Rating</label>
+          <select id="feedbackRating">
+            <option value="5">5 - Excellent</option>
+            <option value="4">4 - Good</option>
+            <option value="3">3 - Average</option>
+            <option value="2">2 - Poor</option>
+            <option value="1">1 - Terrible</option>
+          </select>
+        </div>
+        <button onclick="submitFeedback()">Submit</button>
+      </div>
+      <div id="feedbackResult" class="mt-10 text-sm text-muted"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function apiPost(path, body) {
+  const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  return res.json();
+}
+async function apiGet(path) {
+  const res = await fetch(path);
+  return res.json();
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-bar button').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  event.target.classList.add('active');
+}
+
+async function analyzeRepo() {
+  const url = document.getElementById('repoUrl').value.trim();
+  if (!url) return;
+  const btn = document.getElementById('analyzeBtn');
+  const resultDiv = document.getElementById('result');
+  btn.disabled = true; btn.textContent = 'Analyzing...';
+  resultDiv.innerHTML = '<div class="card loading"><p>Analyzing repository... This may take a moment.</p></div>';
+  try {
+    const data = await apiPost('/api/analyze', { url });
+    if (data.detail) { resultDiv.innerHTML = `<div class="card"><p class="text-muted">Error: ${data.detail}</p></div>`; return; }
+    renderReport(data.report, resultDiv);
+  } catch (e) {
+    resultDiv.innerHTML = `<div class="card"><p>Error: ${e.message}</p></div>`;
+  } finally { btn.disabled = false; btn.textContent = 'Analyze'; }
+}
+
+function renderReport(r, el) {
+  const q = r.qualityScores || {};
+  const h = r.health || {};
+  const c = r.complexity || {};
+  const d = r.docsQuality || {};
+  const a = r.advancedSignals || {};
+  const p = r.processedReadme || {};
+  const ts = r.techStack || {};
+
+  const boolIcon = v => v ? '<span class="badge-green">&#10003;</span>' : '<span class="badge-red">&#10007;</span>';
+  const pct = v => (v ?? 0) + '%';
+  const scoreColor = v => v >= 80 ? '#3fb950' : v >= 50 ? '#d29922' : '#f85149';
+
+  const sections = d.sectionCoverage || [];
+  const sectionsPresent = sections.filter(s => s.present).length;
+
+  const completePct = a.completeness ? a.completeness.percentage || 0 : 0;
+  const configLevel = a.configComplexity ? a.configComplexity.level || '-' : '-';
+  const docCovPct = a.docCoverage ? a.docCoverage.percentage || 0 : 0;
+  const docCovLvl = a.docCoverage ? a.docCoverage.level || '-' : '-';
+  const techDebtTotal = a.techDebtIndicators ? a.techDebtIndicators.total || 0 : 0;
+  const techDebtLvl = a.techDebtIndicators ? a.techDebtIndicators.level || '-' : '-';
+
+  const langs = ts.languages || [];
+  const frameworks = ts.frameworks || [];
+  const databases = ts.databases || [];
+  const tools = ts.tools || [];
+  const infra = ts.infrastructure || [];
+
+  el.innerHTML = `
+    <!-- Header -->
+    <div class="card">
+      <div class="flex justify-between items-center">
+        <div>
+          <h2><a href="${r.repoUrl}" target="_blank" style="color:#58a6ff">${r.repoName || r.repoUrl}</a></h2>
+          <p class="text-sm text-muted">${r.owner || ''} &middot; ${r.analysisSource || ''} &middot; ${r.status || ''}</p>
+          <p class="text-sm mt-10">${r.summary ? r.summary.slice(0, 300) : ''}</p>
+          <div class="mt-10">${(r.topics || []).map(t => '<span class="pill">' + t + '</span>').join('')}</div>
+        </div>
+        <div class="score" style="min-width:100px">
+          <div class="score-value" style="color:${scoreColor(q.overall)}">${q.overall ?? '-'}</div>
+          <div class="score-label">Overall</div>
+          <div class="text-sm mt-10"><span class="pill">${a.personality || '-'}</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quality Scores (6 cards) -->
+    <div class="section-title">Quality Scores</div>
+    <div class="grid">
+      ${sc('Code Quality', q.codeQuality)}
+      ${sc('Documentation', q.documentation)}
+      ${sc('Maintainability', q.maintainability)}
+      ${sc('Community Health', q.communityHealth)}
+      ${sc('Security', q.security)}
+      ${sc('Tech Debt', 100 - (c.techDebtScore || 0))}
+    </div>
+
+    <!-- Overview / Summary (text card) -->
+    <div class="section-title">Overview</div>
+    <div class="grid grid-3">
+      <div class="card"><h3>Summary</h3><div class="text-card mt-10">${r.summary || 'No summary available.'}</div></div>
+      <div class="card"><h3>Architecture</h3><div class="text-card mt-10">${r.architecture || 'No architecture description.'}</div></div>
+      <div class="card"><h3>Onboarding Guide</h3><div class="text-card mt-10">${r.onboardingGuide || 'No onboarding guide.'}</div></div>
+    </div>
+
+    <!-- Processed README -->
+    <div class="section-title">Processed README</div>
+    <div class="grid grid-3">
+      <div class="card"><h3>Overview</h3><div class="text-card mt-10">${p.overview || 'No overview.'}</div></div>
+      <div class="card"><h3>Difficulty</h3><div class="stat-value mt-10">${p.difficulty || '-'}</div></div>
+      <div class="card"><h3>Sections</h3>
+        <div class="mt-10">
+          <div class="stat-row"><span>Install</span>${boolIcon(p.hasInstallSection)}</div>
+          <div class="stat-row"><span>Usage</span>${boolIcon(p.hasUsageSection)}</div>
+          <div class="stat-row"><span>API Docs</span>${boolIcon(p.hasApiSection)}</div>
+        </div>
+      </div>
+    </div>
+    ${(p.features || []).length ? '<div class="card"><h3>Key Features</h3><ul style="padding-left:20px;margin-top:8px">' + p.features.slice(0, 10).map(f => '<li class="text-sm">' + f + '</li>').join('') + '</ul></div>' : ''}
+
+    <!-- Health Metrics (12 cards) -->
+    <div class="section-title">Health Metrics</div>
+    <div class="grid">
+      ${sc('Stars', h.stars)}
+      ${sc('Forks', h.forks)}
+      ${sc('Open Issues', h.openIssues)}
+      ${sc('Issues/Star', h.issuesPerStar != null ? h.issuesPerStar.toFixed(2) : '-')}
+      ${sc('Contributors', h.contributorCount)}
+      ${sc('Bus Factor', h.busFactor)}
+      ${sc('Releases', h.releaseCount)}
+      ${sc('Last Commit', h.lastCommitDays != null ? h.lastCommitDays + 'd' : '-')}
+      ${scb('Recent Activity', h.hasRecentActivity)}
+      ${scb('CI Pipeline', h.hasCI)}
+      ${scb('Tests', h.hasTests)}
+      ${sc('Health Score', h.overall)}
+    </div>
+
+    <!-- Complexity (9 cards) -->
+    <div class="section-title">Complexity</div>
+    <div class="grid">
+      ${sc('Total Files', c.fileCount)}
+      ${sc('Total Lines', c.totalLines)}
+      ${sc('Avg File Size', c.averageFileSize + ' lines')}
+      ${sc('Dir Depth', c.deepestNesting + ' levels')}
+      ${sc('Test Files', c.testFileCount)}
+      ${sc('Test Coverage', pct(c.testCoverageEstimate))}
+      ${sc('API Endpoints', c.apiEndpointCount)}
+      ${sc('FIXMEs', c.fixmeCount)}
+      ${sc('TODOs', c.todoCount)}
+    </div>
+
+    <!-- Documentation (9 cards) -->
+    <div class="section-title">Documentation</div>
+    <div class="grid">
+      ${sc('README Score', d.readmeScore)}
+      ${sc('README Length', d.readmeLength + ' chars')}
+      ${scb('Has README', d.hasReadme)}
+      ${scb('Contributing Guide', d.hasContributing)}
+      ${scb('License', d.hasLicense)}
+      ${scb('Code of Conduct', d.hasCodeOfConduct)}
+      ${scb('Changelog', d.hasChangelog)}
+      ${scb('API Docs', d.hasApiDocs)}
+      ${scb('Wiki', d.hasWiki)}
+    </div>
+
+    <!-- Advanced Signals (13 cards) -->
+    <div class="section-title">Advanced Signals</div>
+    <div class="grid">
+      ${sc('Personality', a.personality || '-')}
+      ${sc('Completeness', pct(completePct))}
+      ${sc('Onboarding', a.onboardingDifficulty || '-')}
+      ${sc('Abandonment Risk', a.abandonmentRisk || '-')}
+      ${sc('Config Complexity', configLevel)}
+      ${sc('Doc Coverage', docCovPct + '% (' + docCovLvl + ')')}
+      ${sc('Contributor Friendliness', a.contributorFriendliness || '-')}
+      ${sc('Security Maturity', a.securityMaturity || '-')}
+      ${sc('Deployment Readiness', a.deploymentReadiness || '-')}
+      ${sc('Learning Value', a.learningValue != null ? a.learningValue.toFixed(1) : '-')}
+      ${sc('README/Code Consistency', a.readmeCodeConsistency != null ? a.readmeCodeConsistency.toFixed(2) : '-')}
+      ${sc('Tech Debt', techDebtTotal + ' (' + techDebtLvl + ')')}
+      ${sc('Maintainability', a.maintainabilityIndex || '-')}
+    </div>
+
+    <!-- Tech Stack -->
+    <div class="section-title">Tech Stack</div>
+    <div class="grid">
+      ${[['Languages', langs], ['Frameworks', frameworks], ['Databases', databases], ['Tools', tools], ['Infrastructure', infra]].map(([label, items]) =>
+        '<div class="card"><h3>' + label + '</h3><div class="mt-10 text-sm">' +
+        (items.length ? items.map(i => typeof i === 'object' ? '<span class="pill">' + i.name + ' (' + (i.percentage || 0) + '%)</span>' : '<span class="pill">' + i + '</span>').join('') : '<span class="text-muted">None</span>') +
+        '</div></div>'
+      ).join('')}
+    </div>
+
+    <!-- Outliers & Suggestions -->
+    ${(r.outlierAlerts || []).length ? '<div class="card"><h3>Outlier Alerts</h3><ul style="padding-left:20px;margin-top:8px">' + r.outlierAlerts.map(a => '<li class="text-sm badge-yellow">' + a + '</li>').join('') + '</ul></div>' : ''}
+    ${(r.suggestions || []).length ? '<div class="card"><h3>Suggestions</h3><ul style="padding-left:20px;margin-top:8px">' + r.suggestions.map(s => '<li class="text-sm">' + s + '</li>').join('') + '</ul></div>' : ''}
+
+    <!-- Analysis Metadata -->
+    <div class="card text-sm text-muted">
+      <span>Generated: ${r.generatedAt || ''}</span>
+      <span class="ml-10">Source: ${r.analysisSource || ''}</span>
+    </div>
+  `;
+}
+
+function sc(label, value) {
+  return `<div class="stat-card"><div class="stat-value">${value ?? '-'}</div><div class="stat-label">${label}</div></div>`;
+}
+function scb(label, boolVal) {
+  const icon = boolVal ? '<span class="badge-green">&#10003;</span>' : '<span class="badge-red">&#10007;</span>';
+  return `<div class="stat-card"><div class="stat-value">${icon}</div><div class="stat-label">${label}</div></div>`;
+}
+
+async function searchRepos() {
+  const q = document.getElementById('searchQuery').value.trim();
+  if (!q) return;
+  const el = document.getElementById('searchResult');
+  el.innerHTML = '<div class="card loading"><p>Searching...</p></div>';
+  try {
+    const data = await apiGet('/api/search?q=' + encodeURIComponent(q));
+    if (!data.results || !data.results.length) {
+      el.innerHTML = '<div class="card"><p class="text-muted">No results found.</p></div>';
+      return;
+    }
+    el.innerHTML = data.results.map(r => `<div class="card">
+      <div class="flex justify-between items-center">
+        <div><strong>${r.repoName}</strong> <span class="text-muted text-sm">by ${r.owner}</span></div>
+        <span class="stat-value" style="color:#58a6ff">${r.score}</span>
+      </div>
+      <p class="text-sm text-muted mt-10">${r.summary || ''}</p>
+    </div>`).join('');
+  } catch (e) { el.innerHTML = `<div class="card"><p>Error: ${e.message}</p></div>`; }
+}
+
+async function compareRepos() {
+  const input = document.getElementById('compareUrls').value.trim();
+  if (!input) return;
+  const repos = input.split(',').map(s => s.trim()).filter(Boolean);
+  const el = document.getElementById('compareResult');
+  el.innerHTML = '<div class="card loading"><p>Comparing...</p></div>';
+  try {
+    const data = await apiPost('/api/compare', { urls: repos });
+    if (data.detail) { el.innerHTML = `<div class="card"><p class="text-muted">${data.detail}</p></div>`; return; }
+    if (!data.reports || !data.reports.length) { el.innerHTML = '<div class="card"><p class="text-muted">No reports found.</p></div>'; return; }
+    el.innerHTML = '<div class="card"><table style="width:100%;border-collapse:collapse">' +
+      '<tr style="border-bottom:1px solid #30363d"><th style="padding:8px;text-align:left;color:#8b949e">Metric</th>' +
+      data.reports.map(r => `<th style="padding:8px;text-align:center;color:#58a6ff">${r.repoName || r.id}</th>`).join('') + '</tr>' +
+      [['Overall', 'qualityScores.overall'], ['Code Quality', 'qualityScores.codeQuality'], ['Documentation', 'qualityScores.documentation'], ['Maintainability', 'qualityScores.maintainability'], ['Community Health', 'qualityScores.communityHealth'], ['Security', 'qualityScores.security'], ['Stars', 'health.stars'], ['Forks', 'health.forks'], ['Contributors', 'health.contributorCount'], ['Files', 'complexity.fileCount'], ['README Score', 'docsQuality.readmeScore']]
+      .map(([label, path]) => `<tr style="border-bottom:1px solid #21262d">
+        <td style="padding:8px;color:#8b949e">${label}</td>
+        ${data.reports.map(r => `<td style="padding:8px;text-align:center">${resolvePath(r, path) ?? '-'}</td>`).join('')}
+      </tr>`).join('') + '</table></div>';
+  } catch (e) { el.innerHTML = `<div class="card"><p>Error: ${e.message}</p></div>`; }
+}
+
+function resolvePath(obj, path) {
+  return path.split('.').reduce((o, k) => o && o[k] !== undefined ? o[k] : null, obj);
+}
+
+async function loadStats() {
+  const el = document.getElementById('statsResult');
+  try {
+    const data = await apiGet('/api/train/stats');
+    el.innerHTML = '<div class="grid">' +
+      sc('States', data.states) +
+      sc('Q-Values', data.totalQValues) +
+      sc('Avg Q', data.avgQ != null ? data.avgQ.toFixed(4) : '-') +
+      sc('Training Steps', data.trainingSteps) +
+      sc('Experiences', data.experiences) +
+      sc('Saved Files', data.savedFiles) +
+      '</div>';
+  } catch (e) { el.innerHTML = `<p class="text-muted">Could not load stats: ${e.message}</p>`; }
+}
+
+async function submitFeedback() {
+  const url = document.getElementById('feedbackUrl').value.trim();
+  const rating = parseInt(document.getElementById('feedbackRating').value);
+  const el = document.getElementById('feedbackResult');
+  try {
+    const data = await apiPost('/api/train/feedback', { repoUrl: url, rating, category: 'docs' });
+    el.textContent = data.message || 'Failed to submit feedback.';
+  } catch (e) { el.textContent = 'Error: ' + e.message; }
+}
+
+fetch('/health').then(r => r.json()).then(d => {
+  document.getElementById('version').textContent = 'v' + d.version;
+}).catch(() => {});
+</script>
+</body>
+</html>

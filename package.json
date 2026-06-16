@@ -1,40 +1,10 @@
 {
   "name": "ai-github-repo-analyzer",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "worker": "node workers/analysisWorker.js",
+    "start": "uvicorn backend.main:app --reload --port 3000",
     "train": "python workers/compact_train.py",
-    "analyze:local": "tsx workers/localAnalyzer.ts",
-    "analyze:batch": "tsx workers/batchAnalyzer.ts",
-    "analyze:parallel": "tsx workers/parallelBatch.ts"
-  },
-  "dependencies": {
-    "@google/generative-ai": "^0.21.0",
-    "dotenv": "^17.4.2",
-    "lucide-react": "^0.400.0",
-    "next": "^14.2.0",
-    "octokit": "^4.0.0",
-    "openai": "^4.52.0",
-    "react": "^18.3.0",
-    "react-dom": "^18.3.0",
-    "react-markdown": "^9.0.0",
-    "recharts": "^2.12.0",
-    "uuid": "^10.0.0"
-  },
-  "devDependencies": {
-    "@types/node": "^20.14.0",
-    "@types/react": "^18.3.0",
-    "@types/react-dom": "^18.3.0",
-    "@types/uuid": "^10.0.0",
-    "autoprefixer": "^10.4.0",
-    "postcss": "^8.4.0",
-    "tailwindcss": "^3.4.0",
-    "tsx": "^4.16.0",
-    "typescript": "^5.5.0"
+    "analyze": "python workers/batch_analyze.py"
   }
 }

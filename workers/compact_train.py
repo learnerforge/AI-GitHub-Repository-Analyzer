@@ -1,7 +1,7 @@
 """
 Compact RL Training Pipeline (Python-only)
 Trains ALL quality-scoring parameters (weights, bonuses, base scores, sub-score adjustments).
-Produces version-4 Q-tables compatible with the runtime system.
+Produces Q-tables compatible with the runtime system.
 """
 
 from __future__ import annotations
@@ -32,45 +32,43 @@ def _now_iso() -> str:
 
 
 # ---------------------------------------------------------------------------
-# State extraction & quantization (must match reinforcement.py)
+# State extraction & quantization (must match reinforcement.py / reinforcement.ts)
 # ---------------------------------------------------------------------------
 
-def quantize(v: float, unit: float) -> int:
-    return round(v / unit)
+def _bucket(v, thresholds):
+    for i, t in enumerate(thresholds):
+        if v < t:
+            return i
+    return len(thresholds)
 
 
 def get_state_key(s: dict) -> str:
-    def _clip_bucket(v, edges):
-        for i, e in enumerate(edges):
-            if v <= e:
-                return i
-        return len(edges)
     return ':'.join(str(x) for x in [
-        quantize(s['repoStars'], 1000),
-        quantize(s['repoForks'], 100),
-        quantize(s['fileCount'], 100),
-        s['languageCount'],
-        quantize(s['readmeLength'], 1000),
-        quantize(s['contributorCount'], 5),
+        _bucket(s['repoStars'], [10, 100, 1000]),
+        _bucket(s['repoForks'], [5, 50, 500]),
+        _bucket(s['fileCount'], [20, 100, 500]),
+        _bucket(s['languageCount'], [3, 5]),
+        _bucket(s['readmeLength'], [100, 500, 2000]),
+        _bucket(s['contributorCount'], [2, 6, 21]),
         1 if s['hasTests'] else 0,
         1 if s['hasCI'] else 0,
-        quantize(s['readmeScore'], 20),
-        s['docsSectionCount'],
+        _bucket(s['readmeScore'], [20, 40, 60, 80]),
+        _bucket(s['docsSectionCount'], [1, 4, 7]),
         1 if s['hasApiDocs'] else 0,
         1 if s['hasLicense'] else 0,
-        quantize(s['lastCommitDays'], 90),
+        _bucket(s['lastCommitDays'], [30, 90, 365]),
         1 if s.get('hasDockerfile', False) else 0,
         1 if s.get('hasContributing', False) else 0,
-        _clip_bucket(s.get('headingCount', 0), [0, 3, 10]),
-        _clip_bucket(s.get('codeBlockCount', 0), [0, 3, 10]),
-        _clip_bucket(s.get('imageCount', 0), [0, 3]),
-        _clip_bucket(s.get('badgeCount', 0), [0, 3]),
-        _clip_bucket(s.get('emojiCount', 0), [0, 5]),
-        _clip_bucket(s.get('tableCount', 0), [0, 3]),
-        _clip_bucket(s.get('checklistCount', 0), [0, 3]),
-        _clip_bucket(s.get('linkCount', 0), [5, 20]),
-        _clip_bucket(s.get('todoCount', 0), [5]),
-        _clip_bucket(s.get('fixmeCount', 0), [3]),
+        _bucket(s.get('headingCount', 0), [1, 4, 11]),
+        _bucket(s.get('codeBlockCount', 0), [1, 4, 11]),
+        _bucket(s.get('imageCount', 0), [1, 4]),
+        _bucket(s.get('badgeCount', 0), [1, 4]),
+        _bucket(s.get('emojiCount', 0), [1, 6]),
+        _bucket(s.get('tableCount', 0), [1, 4]),
+        _bucket(s.get('checklistCount', 0), [1, 4]),
+        _bucket(s.get('linkCount', 0), [1, 6, 21]),
+        _bucket(s.get('todoCount', 0), [1, 6]),
+        _bucket(s.get('fixmeCount', 0), [1, 4]),
         0 if s.get('hackCount', 0) == 0 else 1,
         0 if s.get('tempCount', 0) == 0 else 1,
     ])
@@ -78,7 +76,7 @@ def get_state_key(s: dict) -> str:
 
 def get_action_key(a: dict) -> str:
     d = a['delta']
-    return f"{a['paramName']}:{'+' if d > 0 else ''}{d}"
+    return f"{a['paramName']}:{'+' if d >= 0 else ''}{d}"
 
 
 def extract_state(report: dict) -> dict:
@@ -150,27 +148,8 @@ def compute_quality_score(report: dict, params: dict) -> float:
 
 
 def compute_reward(score: float, report: dict, action: dict) -> float:
-    state = extract_state(report)
-    base = (score - 50) / 50
-    bonus = 0.0
-    if action['paramName'].startswith('w_') and action['delta'] > 0:
-        bonus += 0.05
-    elif action['paramName'].startswith('w_') and action['delta'] < 0:
-        bonus -= 0.05
-    # Contextual bonuses for weight adjustments
-    if action['paramName'] == 'w_community' and state['repoStars'] > 1000:
-        bonus += 0.2
-    if action['paramName'] == 'w_docs' and state['readmeScore'] > 60:
-        bonus += 0.25
-    if action['paramName'] == 'w_docs' and state['docsSectionCount'] >= 6:
-        bonus += 0.15
-    if action['paramName'] == 'w_codeQuality' and state['hasTests']:
-        bonus += 0.2
-    if action['paramName'] == 'w_security' and (state['hasCI'] or state['hasTests']):
-        bonus += 0.15
-    if action['paramName'] == 'w_maintainability' and state['fileCount'] < 100:
-        bonus += 0.15
-    return max(-1.0, min(1.0, base + bonus))
+    base = score / 100.0
+    return max(-1.0, min(1.0, base))
 
 
 # ---------------------------------------------------------------------------
@@ -561,12 +540,12 @@ def evaluate(q_values: dict, experiences: list[dict]) -> dict:
             top_actions[best] = top_actions.get(best, 0) + 1
     ranked = sorted(top_actions.items(), key=lambda x: -x[1])
 
-    repo_stars: list[int] = []
-    file_counts: list[int] = []
+    star_buckets: set[int] = set()
+    file_buckets: set[int] = set()
     for sk in q_values:
         parts = sk.split(':')
-        repo_stars.append(int(parts[0]) * 1000)
-        file_counts.append(int(parts[2]) * 100)
+        star_buckets.add(int(parts[0]))
+        file_buckets.add(int(parts[2]))
 
     return {
         'stateCount': state_count,
@@ -577,8 +556,8 @@ def evaluate(q_values: dict, experiences: list[dict]) -> dict:
         'qValueStd': round(std_q, 4),
         'topActions': ranked[:10],
         'stateCoverage': {
-            'starRange': f'{min(repo_stars)}-{max(repo_stars)}' if repo_stars else '0-0',
-            'fileRange': f'{min(file_counts)}-{max(file_counts)}' if file_counts else '0-0',
+            'starBuckets': sorted(star_buckets),
+            'fileBuckets': sorted(file_buckets),
             'count': state_count,
         },
     }
@@ -692,7 +671,7 @@ def main():
     print(f'  States: {eval_result["stateCount"]}')
     print(f'  Actions: {eval_result["actionCount"]}')
     print(f'  Q-value range: {eval_result["minQ"]} to {eval_result["maxQ"]} (avg: {eval_result["avgQ"]}, std: {eval_result["qValueStd"]})')
-    print(f'  State coverage: {eval_result["stateCoverage"]["starRange"]} stars, {eval_result["stateCoverage"]["fileRange"]} files')
+    print(f'  State coverage: {eval_result["stateCoverage"]["starBuckets"]} star buckets, {eval_result["stateCoverage"]["fileBuckets"]} file buckets')
     print('  Top actions:')
     for action, count in eval_result['topActions']:
         print(f'    {action}: {count} states')
@@ -709,7 +688,7 @@ def main():
             'qTable': qt,
             'experienceBuffer': [],
             'trainingSteps': run['epochs'] * len(train_set),
-            'version': 4,
+            'version': 1,
             'trainingMeta': meta,
             'exportedAt': _now_iso(),
         }
