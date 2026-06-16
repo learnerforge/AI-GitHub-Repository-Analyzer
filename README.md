@@ -3,8 +3,8 @@
 Paste any GitHub URL, get back an instant analysis: tech stack, code quality, documentation health, improvement suggestions, and an auto-generated contributor guide. No external AI API required.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-18+-339933?logo=node.js&logoColor=white)](https://nodejs.org)
-[![Next.js](https://img.shields.io/badge/Next.js-14-000000?logo=next.js&logoColor=white)](https://nextjs.org)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 
 ## Is this for me?
 
@@ -62,7 +62,7 @@ Enter a GitHub repository URL. The analyzer fetches metadata, README, file tree,
 
 ### Limitations
 
-The analysis is based on metadata, file structure, and README content — it never compiles or runs the code. The local model uses TextRank (extractive, not generative) and heuristic scoring. For generative summaries or deep code understanding, you can optionally plug in OpenAI.
+The analysis is based on metadata, file structure, and README content — it never compiles or runs the code. The local model uses TextRank (extractive, not generative) and heuristic scoring. For generative summaries or deep code understanding, you can optionally plug in OpenAI, Gemini, or Groq.
 
 ## Features
 
@@ -73,7 +73,9 @@ The analysis is based on metadata, file structure, and README content — it nev
 - **Code smell detection** — 10 checks (no README, no tests, no CI, single contributor, stale dependencies, poor structure, etc.).
 - **Self-healing** — Every output is validated, corrected on failure, and retried with adapted strategies (relaxed → aggressive → minimal).
 - **Reinforcement learning** — Q-learning engine (27 state features, 10 actions) adjusts 5 scoring weights based on repo characteristics. Q-table persists to disk.
-- **Export & compare** — Download any analysis as Markdown. Compare two repos side by side.
+- **Deep README analysis** — Per-section quality scoring, code block detection, table/image/badge counting, tone classification, readability scoring.
+- **Markdown compilation** — Built-in markdown-to-HTML renders READMEs directly in the browser.
+- **Search & compare** — Search past analyses. Compare two repos side by side.
 
 ## Quick Example
 
@@ -94,7 +96,7 @@ Plus: detected tech stack, architecture, code smells, improvement suggestions, a
 
 ### Prerequisites
 
-- Node.js 18+
+- Python 3.11+
 - A [GitHub token](https://github.com/settings/tokens) (optional — without one you get 60 unauthenticated requests/hour)
 
 ### Quick start
@@ -102,8 +104,8 @@ Plus: detected tech stack, architecture, code smells, improvement suggestions, a
 ```bash
 git clone https://github.com/learnerforge/AI-GitHub-Repository-Analyzer.git
 cd AI-GitHub-Repository-Analyzer
-npm install
-npm run dev
+pip install -r requirements.txt
+uvicorn backend.main:app --port 3000
 ```
 
 Open http://localhost:3000, paste a URL, click Analyze. That's it.
@@ -123,23 +125,6 @@ docker compose up -d
 
 Builds and starts on port 3000.
 
-### One-click setup (Windows)
-
-```bash
-.\scripts\setup.bat
-```
-
-Checks Node.js, installs deps, creates `.env`, creates directories, verifies build.
-
-## Packages
-
-Tagged releases publish to GitHub with source archives and a `SHA256SUMS` file. The Docker image is published to GitHub Container Registry.
-
-```bash
-docker build -t repo-analyzer .
-docker run -p 3000:3000 -e GITHUB_TOKEN=ghp_... repo-analyzer
-```
-
 ## Usage
 
 ### Report sections
@@ -151,11 +136,13 @@ docker run -p 3000:3000 -e GITHUB_TOKEN=ghp_... repo-analyzer
 | Tech Stack | Languages with %, frameworks, databases, tools |
 | Architecture | Detected patterns and plain-English description |
 | Code Complexity | File/language breakdown, avg file size, nesting depth |
+| Deep README Analysis | Section scoring, code blocks, tables, images, tone, readability |
 | Documentation | Green/red checklist across 10 README sections |
 | Health | Stars, forks, contributors, recency, CI/CD, bus factor |
 | Code Smells | Color-coded issues (critical / warning / info) |
 | Suggestions | Prioritized, actionable recommendations |
 | Onboarding Guide | Auto-generated contributor guide |
+| Compiled README | Rendered markdown with syntax-highlighted code blocks |
 
 ### Export, compare, direct URLs
 
@@ -167,37 +154,41 @@ docker run -p 3000:3000 -e GITHUB_TOKEN=ghp_... repo-analyzer
 
 ```
   ┌──────────┐     ┌───────────────────┐     ┌──────────────────┐
-  │ Browser   │     │ Next.js API Route │     │   GitHub API     │
-  │ (React)   │────▶│ /api/analyze      │────▶│ (metadata, tree, │
+  │ Browser   │     │  FastAPI Server   │     │   GitHub API     │
+  │ (HTML/JS) │────▶│  /api/analyze     │────▶│ (metadata, tree, │
   │           │     │                   │     │  readme, langs)  │
   └──────────┘     └───────────────────┘     └──────────────────┘
                            │                           │
                            │                           │
                            ▼                           ▼
-                    ┌──────────────────┐     ┌──────────────────┐
-                    │  AI Pipeline     │     │  Scored Metrics  │
-                    │  (summarizer,    │     │  (complexity,    │
-                    │   detector,      │◀────│   docs, health,  │
-                    │   scorer, RL)    │     │   code smells)   │
-                    └──────────────────┘     └──────────────────┘
+                     ┌──────────────────┐     ┌──────────────────┐
+                     │  AI Pipeline     │     │  Scored Metrics  │
+                     │  (summarizer,    │     │  (complexity,    │
+                     │   detector,      │◀────│   docs, health,  │
+                     │   scorer, RL)    │     │   code smells)   │
+                     └──────────────────┘     └──────────────────┘
                            │
                            ▼
-                    ┌──────────────────┐
-                    │ Analysis Report  │
-                    │ (scores, stack,  │
-                    │  smells, guide)  │
-                    └──────────────────┘
+                     ┌──────────────────┐
+                     │ Analysis Report  │
+                     │ (scores, stack,  │
+                     │  smells, guide)  │
+                     └──────────────────┘
 ```
 
-Three layers: Browser sends a URL → Next.js API route fans out to GitHub API (metadata, file tree, README, languages) and the AI pipeline in parallel → results merge into a scored report. The default AI runs entirely in-process (TextRank, heuristic detectors, Q-learning) — zero network calls, zero cost. An `AIProvider` interface lets you swap in OpenAI, Gemini, or Groq.
+A single `uvicorn backend.main:app --port 3000` process serves everything — the API at `/api/*`, the frontend at `/`, and static assets at `/static`. No separate frontend server or Node.js runtime required.
+
+The browser sends a URL → FastAPI fans out to GitHub API (metadata, file tree, README, languages) and the AI pipeline in parallel → results merge into a scored report. The default AI runs entirely in-process (TextRank, heuristic detectors, Q-learning) — zero network calls, zero cost. An `AIProvider` interface lets you swap in OpenAI, Gemini, or Groq.
 
 Every output is validated before returning; on failure the system corrects, logs, and retries with relaxed → aggressive → minimal strategies. All scores include a `breakdown` field — no black box.
 
-### Local AI modules
+### Processing modules
 
+- **README Processor** — Cleans markdown, extracts features, detects difficulty, extracts tech keywords and overview.
+- **Deep README Analyzer** — Per-section analysis: code blocks, tables, images, badges, links, readability, tone, installation/usage/api/contributing quality.
 - **TextRank Summarizer** — Cosine-similarity matrix between sentences, PageRank (30 iterations, d=0.85), returns top 30% of sentences.
-- **Tech Stack Detector** — Matches file names, directories, dependencies, README content, and topics against 60+ technology patterns with confidence weights.
-- **Architecture Analyzer** — Scans directory structure for known patterns (`packages/` → Monorepo, `services/` → Microservices, `controllers/` → MVC).
+- **Tech Stack Detector** — Matches file names, directories, dependencies, README content, and topics against 147+ technology patterns.
+- **Architecture Analyzer** — Scans directory structure for known patterns.
 - **Code Smell Detector** — 10 independent rule checks, each returning a severity level.
 - **Quality Scorer** — 5 weighted dimensions (Code Quality 25%, Documentation 20%, Maintainability 20%, Community Health 20%, Security 15%).
 - **Self-Healing Layer** — Validate → correct → retry (up to 3×) → track. Component health logged and exposed via stats API.
@@ -206,84 +197,97 @@ Every output is validated before returning; on failure the system corrects, logs
 ### Batch analysis
 
 ```bash
-npm run worker -- https://github.com/facebook/react
-npm run train
-npm run train:compact
-npm run evaluate:edges
+python workers/worker.py https://github.com/facebook/react
+python workers/train.py
+python workers/compact_train.py
+python workers/evaluate_edges.py
 ```
 
-Results saved as JSON in `analysis-results/`. Pipeline supports clone-based fallback when GitHub API is unavailable.
+Results saved as JSON in `data/results/`. Pipeline supports clone-based fallback when GitHub API is unavailable.
 
 ## Configuration
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `GITHUB_TOKEN` | — | GitHub token (5,000/hr vs 60/hr unauthenticated) |
-| `OPENAI_API_KEY` | — | If set, uses OpenAI instead of local model |
-| `GEMINI_API_KEY` | — | Takes priority over OpenAI |
-| `GROQ_API_KEY` | — | Fallback if Gemini is unavailable |
+| `OPENAI_API_KEY` | — | Fallback AI provider |
+| `GEMINI_API_KEY` | — | Recommended AI provider (takes priority) |
+| `GROQ_API_KEY` | — | Alternative AI provider |
+| `AI_PROVIDER` | `localai` | Which AI provider to use |
 
 The app works with **zero configuration**. Setting `GITHUB_TOKEN` is recommended.
 
 ## Testing
 
 ```bash
-npm run lint       # ESLint
-npm run build      # TypeScript check + production build
-npx tsc --noEmit   # Type-check only
+ruff check backend/
+pytest
 ```
 
 ## Project Structure
 
 ```
-src/
-  pages/       Next.js pages and API routes
-  components/  React components
-  services/    GitHub API client, AI provider selector, pipeline
-  models/      Local AI modules (summarizer, scorer, RL, etc.)
-  types/       TypeScript interfaces
-  utils/       Helpers
-  styles/      Global CSS
-workers/       Batch analysis and training scripts
-config/        Repo URL mappings, edge-case definitions
-scripts/       setup.bat
-model-checkpoints/  Persisted Q-table
+backend/
+  main.py          FastAPI app entry point
+  config.py        Environment and path configuration
+  schemas.py       Pydantic models
+  api/
+    routes.py      REST endpoints (/api/analyze, /search, /compare, etc.)
+  services/
+    analyzer.py    Main analysis orchestrator
+    github.py      GitHub API client
+  models/
+    local_ai.py      AI provider orchestrator
+    readme_processor.py  README cleaning and feature extraction
+    deep_readme.py      Per-section README quality analysis
+    md_compiler.py      Markdown-to-HTML compiler
+    summarizer.py       TextRank extractive summarization
+    text_analyzer.py    NLP utilities (tokenization, keywords, readability)
+    technologies.py     Tech stack detection
+    advanced_signals.py Personality, completeness, risk, learning value
+    smell_detector.py   Code smell rules
+    quality_scorer.py   Trainable quality scoring
+    reinforcement.py    Q-learning engine
+    knowledge.py        147-entry technology knowledge base
+frontend/
+  index.html       Single-page dark-themed UI
+workers/           Batch analysis and training scripts
+data/              Checkpoints, results, training data
 ```
 
 ## Extending
 
 ### Add a technology pattern
 
-```typescript
-// src/models/knowledge.ts
-{ name: 'Svelte', category: 'framework', patterns: ['svelte', 'sveltekit'], confidence: 85 }
+```python
+# backend/models/knowledge.py
+{'name': 'Svelte', 'category': 'framework', 'patterns': ['svelte', 'sveltekit'], 'extensions': ['.svelte']}
 ```
 
 ### Add a code smell rule
 
-```typescript
-// src/models/smellDetector.ts
+```python
+# backend/models/smell_detector.py
 {
-  id: 'no-codeowners',
-  severity: 'info',
-  category: 'DevOps',
-  title: 'Missing CODEOWNERS',
-  description: 'No CODEOWNERS file found.',
-  check: (input) => !input.fileTree.some(f => f.path === 'CODEOWNERS'),
+    'id': 'no-codeowners',
+    'severity': 'info',
+    'category': 'DevOps',
+    'title': 'Missing CODEOWNERS',
+    'description': 'No CODEOWNERS file found.',
+    'check': lambda inp: not any(f.get('name') == 'CODEOWNERS' for f in (inp.get('fileTree') or [])),
 }
 ```
 
 ### Swap the AI provider
 
-```typescript
-class MyProvider implements AIProvider {
-  async analyze(input: AIAnalysisInput): Promise<AIAnalysisResult> {
-    // Your analysis
-  }
-}
+```python
+class MyProvider:
+    async def analyze(self, input_data: dict) -> dict:
+        # Your analysis
+        pass
 ```
 
-Then register it in `src/services/ai.ts`.
+Then register it in `backend/services/analyzer.py`.
 
 ## Status
 
@@ -291,9 +295,11 @@ Then register it in `src/services/ai.ts`.
 
 ## Support
 
-Use GitHub Issues for bug reports and feature requests.
+Use GitHub Issues for bug reports and feature requests. See the [changelog](CHANGELOG.md) for version history.
 
 ## Contributing
+
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) and review our [Code of Conduct](CODE_OF_CONDUCT.md) before submitting.
 
 1. Fork the repository.
 2. Create a feature branch (`git checkout -b feature/my-feature`).
@@ -301,7 +307,7 @@ Use GitHub Issues for bug reports and feature requests.
 4. Push to the branch (`git push origin feature/my-feature`).
 5. Open a Pull Request.
 
-All PRs must pass: `npx tsc --noEmit`, `npm run build`, `npm run lint`.
+All PRs must pass: `ruff check backend/` and `pytest`.
 
 See the generated **Onboarding Guide** in the app for more details (it analyzes itself too).
 
