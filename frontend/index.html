@@ -53,6 +53,7 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; }
 .badge-yellow { color: #d29922; }
 .badge-red { color: #f85149; }
 .section-title { font-size: 1rem; font-weight: 600; color: #58a6ff; margin: 20px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #30363d; }
+.section-title-muted { font-size: 0.85rem; font-weight: 500; color: #8b949e; margin: 12px 0 8px; padding-bottom: 2px; border-bottom: 1px solid #21262d; }
 .text-card { white-space: pre-wrap; font-size: 0.85rem; color: #c9d1d9; max-height: 200px; overflow-y: auto; }
 .compiled-readme { font-size: 0.9rem; line-height: 1.7; color: #e6edf3; }
 .compiled-readme h1, .compiled-readme h2, .compiled-readme h3, .compiled-readme h4 { color: #58a6ff; margin: 16px 0 8px; }
@@ -83,19 +84,25 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; }
     <div class="text-sm text-muted" id="version"></div>
   </div>
 
-  <div class="tab-bar">
-    <button class="active" onclick="switchTab('analyze')">Analyze</button>
-    <button onclick="switchTab('search')">Search</button>
-    <button onclick="switchTab('compare')">Compare</button>
-    <button onclick="switchTab('stats')">RL Stats</button>
+  <div class="flex items-center justify-between" style="margin:10px 0">
+    <div class="tab-bar" style="margin:0">
+      <button class="active" onclick="switchTab('analyze')">Analyze</button>
+      <button onclick="switchTab('search')">Search</button>
+      <button onclick="switchTab('compare')">Compare</button>
+      <button onclick="switchTab('stats')">RL Stats</button>
+      <button id="tabLoginBtn" onclick="switchTab('login')">Login</button>
+      <button id="tabProfileBtn" onclick="switchTab('profile')" style="display:none">Profile</button>
+    </div>
+    <span id="authStatus" class="text-sm text-muted"></span>
   </div>
 
   <!-- Analyze Tab -->
   <div id="tab-analyze" class="tab-content active">
     <div class="card">
       <div class="flex gap-10">
-        <input type="text" id="repoUrl" placeholder="https://github.com/owner/repo" style="flex:1">
-        <button onclick="analyzeRepo()" id="analyzeBtn">Analyze</button>
+      <input type="text" id="repoUrl" placeholder="https://github.com/owner/repo" style="flex:1">
+      <button onclick="analyzeRepo()" id="analyzeBtn">Analyze</button>
+      <button onclick="saveCurrentRepo()" id="saveBtn" class="secondary" style="display:none">Save Repo</button>
       </div>
     </div>
     <div id="result"></div>
@@ -152,23 +159,184 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; }
       <div id="feedbackResult" class="mt-10 text-sm text-muted"></div>
     </div>
   </div>
+
+  <!-- Login Tab -->
+  <div id="tab-login" class="tab-content">
+    <div class="card" style="max-width:400px;margin:0 auto">
+      <h3 id="loginTitle">Login</h3>
+      <div id="loginForm">
+        <div class="mb-10">
+          <label class="text-sm text-muted">Username</label>
+          <input type="text" id="loginUsername" placeholder="username">
+        </div>
+        <div class="mb-10">
+          <label class="text-sm text-muted">Password</label>
+          <input type="password" id="loginPassword" placeholder="password">
+        </div>
+        <div class="flex gap-10">
+          <button onclick="login()">Login</button>
+          <button class="secondary" onclick="showRegister()">Register</button>
+        </div>
+        <div id="loginResult" class="mt-10 text-sm text-muted"></div>
+      </div>
+      <div id="registerForm" style="display:none">
+        <div class="mb-10">
+          <label class="text-sm text-muted">Username</label>
+          <input type="text" id="regUsername" placeholder="username">
+        </div>
+        <div class="mb-10">
+          <label class="text-sm text-muted">Email</label>
+          <input type="email" id="regEmail" placeholder="email@example.com">
+        </div>
+        <div class="mb-10">
+          <label class="text-sm text-muted">Password</label>
+          <input type="password" id="regPassword" placeholder="at least 4 characters">
+        </div>
+        <div class="flex gap-10">
+          <button onclick="register()">Register</button>
+          <button class="secondary" onclick="showLogin()">Back to Login</button>
+        </div>
+        <div id="regResult" class="mt-10 text-sm text-muted"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Profile Tab -->
+  <div id="tab-profile" class="tab-content">
+    <div class="card">
+      <div class="flex items-center justify-between">
+        <h3>Saved Repositories</h3>
+        <button class="secondary" onclick="logout()">Logout</button>
+      </div>
+      <div id="savedReposList" class="mt-10"></div>
+    </div>
+  </div>
 </div>
 
 <script>
+function getToken() { return localStorage.getItem('jwt') || ''; }
+function isLoggedIn() { return !!getToken(); }
+function getAuthHeaders() {
+  const t = getToken();
+  return t ? { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + t } : { 'Content-Type': 'application/json' };
+}
 async function apiPost(path, body) {
-  const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const res = await fetch(path, { method: 'POST', headers: getAuthHeaders(), body: JSON.stringify(body) });
   return res.json();
 }
 async function apiGet(path) {
-  const res = await fetch(path);
+  const res = await fetch(path, { headers: getAuthHeaders() });
   return res.json();
+}
+async function apiDelete(path) {
+  const res = await fetch(path, { method: 'DELETE', headers: getAuthHeaders() });
+  return res.json();
+}
+async function apiPatch(path, body) {
+  const res = await fetch(path, { method: 'PATCH', headers: getAuthHeaders(), body: JSON.stringify(body) });
+  return res.json();
+}
+
+function updateAuthUI() {
+  const loginBtn = document.getElementById('tabLoginBtn');
+  const profileBtn = document.getElementById('tabProfileBtn');
+  const status = document.getElementById('authStatus');
+  if (isLoggedIn()) {
+    loginBtn.style.display = 'none';
+    profileBtn.style.display = '';
+    status.textContent = 'Logged in';
+  } else {
+    loginBtn.style.display = '';
+    profileBtn.style.display = 'none';
+    status.textContent = '';
+  }
+}
+
+async function login() {
+  const username = document.getElementById('loginUsername').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const res = await apiPost('/api/auth/login', { username, password });
+  if (res.token) {
+    localStorage.setItem('jwt', res.token);
+    document.getElementById('loginResult').textContent = 'Logged in!';
+    updateAuthUI();
+    switchTab('analyze');
+  } else {
+    document.getElementById('loginResult').textContent = res.detail || 'Login failed';
+  }
+}
+
+async function register() {
+  const username = document.getElementById('regUsername').value.trim();
+  const email = document.getElementById('regEmail').value.trim();
+  const password = document.getElementById('regPassword').value;
+  const res = await apiPost('/api/auth/register', { username, email, password });
+  if (res.token) {
+    localStorage.setItem('jwt', res.token);
+    document.getElementById('regResult').textContent = 'Registered!';
+    updateAuthUI();
+    switchTab('analyze');
+  } else {
+    document.getElementById('regResult').textContent = res.detail || 'Registration failed';
+  }
+}
+
+function logout() {
+  localStorage.removeItem('jwt');
+  updateAuthUI();
+  switchTab('analyze');
+}
+
+function showRegister() {
+  document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('registerForm').style.display = '';
+  document.getElementById('loginTitle').textContent = 'Register';
+}
+
+function showLogin() {
+  document.getElementById('loginForm').style.display = '';
+  document.getElementById('registerForm').style.display = 'none';
+  document.getElementById('loginTitle').textContent = 'Login';
+}
+
+async function loadSavedRepos() {
+  const list = document.getElementById('savedReposList');
+  if (!isLoggedIn()) { list.innerHTML = '<p class="text-muted">Log in to see saved repositories.</p>'; return; }
+  const data = await apiGet('/api/auth/saved-repos');
+  const repos = data.repos || [];
+  if (!repos.length) { list.innerHTML = '<p class="text-muted">No saved repositories yet. Analyze a repo and save it!</p>'; return; }
+  list.innerHTML = repos.map(r => `
+    <div class="flex items-center justify-between" style="padding:8px 0;border-bottom:1px solid #30363d">
+      <div>
+        <a href="${r.repo_url}" target="_blank" style="color:#58a6ff">${r.repo_name || r.repo_url}</a>
+        ${r.notes ? '<div class="text-sm text-muted">' + r.notes + '</div>' : ''}
+        <div class="text-xs text-muted">Saved ${r.created_at}</div>
+      </div>
+      <button class="secondary small" onclick="deleteSavedRepo(${r.id})">Remove</button>
+    </div>
+  `).join('');
+}
+
+async function deleteSavedRepo(id) {
+  const res = await apiDelete('/api/auth/saved-repos/' + id);
+  if (res.message) loadSavedRepos();
+}
+
+async function saveCurrentRepo() {
+  const url = document.getElementById('repoUrl').value.trim();
+  if (!url || !isLoggedIn()) return;
+  const res = await apiPost('/api/auth/saved-repos', { repoUrl: url, repoName: url.split('/').slice(-2).join('/') });
+  document.getElementById('saveBtn').textContent = res.message || 'Saved!';
+  document.getElementById('saveBtn').disabled = true;
 }
 
 function switchTab(tab) {
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-bar button').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
-  document.querySelector(`.tab-bar button[onclick*="'${tab}'"]`).classList.add('active');
+  document.querySelector(`.tab-bar button[onclick*="'${tab}'"]`)?.classList.add('active');
+  updateAuthUI();
+  if (tab === 'profile') loadSavedRepos();
 }
 
 async function analyzeRepo() {
@@ -226,10 +394,13 @@ function renderReport(r, el) {
           <p class="text-sm mt-10">${r.summary ? r.summary.slice(0, 300) : ''}</p>
           <div class="mt-10">${(r.topics || []).map(t => '<span class="pill">' + t + '</span>').join('')}</div>
         </div>
-        <div class="score" style="min-width:100px">
-          <div class="score-value" style="color:${scoreColor(q.overall)}">${q.overall ?? '-'}</div>
-          <div class="score-label">Overall</div>
-          <div class="text-sm mt-10"><span class="pill">${a.personality || '-'}</span></div>
+        <div class="flex flex-col items-center" style="gap:8px">
+          <div class="score" style="min-width:100px">
+            <div class="score-value" style="color:${scoreColor(q.overall)}">${q.overall ?? '-'}</div>
+            <div class="score-label">Overall</div>
+            <div class="text-sm mt-10"><span class="pill">${a.personality || '-'}</span></div>
+          </div>
+          <button class="secondary text-sm" onclick="refreshReport('${r.id || ''}', this)" style="font-size:11px;padding:4px 10px">&#8635; Refresh</button>
         </div>
       </div>
     </div>
@@ -334,17 +505,20 @@ function renderReport(r, el) {
       ${sc('TODOs', c.todoCount)}
     </div>
 
-    <!-- Documentation (9 cards) -->
-    <div class="section-title">Documentation</div>
+    <!-- Documentation (scored) -->
+    <div class="section-title">Documentation (scored)</div>
     <div class="grid">
       ${sc('README Score', d.readmeScore)}
       ${sc('README Length', d.readmeLength + ' chars')}
       ${scb('Has README', d.hasReadme)}
       ${scb('Contributing Guide', d.hasContributing)}
       ${scb('License', d.hasLicense)}
-      ${scb('Code of Conduct', d.hasCodeOfConduct)}
       ${scb('Changelog', d.hasChangelog)}
       ${scb('API Docs', d.hasApiDocs)}
+    </div>
+    <div class="section-title-muted">Documentation (info)</div>
+    <div class="grid">
+      ${scb('Code of Conduct', d.hasCodeOfConduct)}
       ${scb('Wiki', d.hasWiki)}
     </div>
 
@@ -383,6 +557,7 @@ function renderReport(r, el) {
     <!-- Analysis Metadata -->
     <div class="card text-sm text-muted">
       <span>Generated: ${r.generatedAt || ''}</span>
+      <span class="ml-10">Age: ${r._daysOld != null ? r._daysOld + 'd' : (r.generatedAt ? 'recent' : '-')}</span>
       <span class="ml-10">Source: ${r.analysisSource || ''}</span>
       <span class="ml-10">Status: ${r.status || ''}</span>
       <span class="ml-10">Smells: ${(r.codeSmells || []).length}</span>
@@ -399,24 +574,17 @@ function renderDeepReadme(dr) {
   const lic = dr.license || {};
   const toneLabel = dr.tone ? dr.tone.charAt(0).toUpperCase() + dr.tone.slice(1) : 'Neutral';
   return `
-    <div class="section-title">Deep README Analysis</div>
+    <div class="section-title">Deep README Analysis (scored)</div>
     <div class="grid">
       ${sc('Sections', dr.sectionCount)}
       ${sc('Headings', dr.headingCount)}
-      ${sc('Structure Score', dr.structureScore != null ? dr.structureScore.toFixed(0) + '%' : '-')}
       ${sc('Readability', dr.readability != null ? dr.readability.toFixed(1) : '-')}
-      ${sc('Sentences', dr.sentences)}
       ${sc('Total Words', dr.totalWords)}
-      ${sc('Tone', toneLabel)}
       ${sc('Code Blocks', dr.codeBlockCount)}
       ${sc('Tagged Code', dr.taggedCodeBlockCount)}
-      ${sc('Inline Code', dr.inlineCodeCount)}
       ${sc('Tables', dr.tableCount)}
       ${sc('Images', dr.imageCount)}
       ${sc('Badges', dr.badgeCount)}
-      ${sc('Badge Services', dr.uniqueBadgeServices)}
-      ${sc('Total Links', dr.linkCount)}
-      ${sc('Placeholder Links', dr.placeholderLinkCount)}
       ${sc('Installation', install.score != null ? install.score + '%' : '-' )}
       ${sc('Usage Examples', usage.score != null ? usage.score + '%' : '-' )}
       ${sc('API Docs', api.score != null ? api.score + '%' : '-' )}
@@ -424,12 +592,22 @@ function renderDeepReadme(dr) {
       ${sc('License', lic.identified ? lic.license : 'None')}
       ${scb('Security Policy', dr.hasSecurityPolicy)}
       ${scb('Discord', dr.hasDiscord)}
-      ${scb('Sponsor Section', dr.hasSponsorSection)}
       ${scb('Roadmap', dr.hasRoadmap)}
       ${sc('FIXMEs', dr.fixmeCount)}
       ${sc('TODOs', dr.todoCount)}
       ${sc('HACKs', dr.hackCount)}
       ${sc('TEMPs', dr.tempCount)}
+    </div>
+    <div class="section-title-muted">Additional README Info</div>
+    <div class="grid">
+      ${sc('Structure', dr.structureScore != null ? dr.structureScore.toFixed(0) + '%' : '-')}
+      ${sc('Sentences', dr.sentences)}
+      ${sc('Tone', toneLabel)}
+      ${sc('Inline Code', dr.inlineCodeCount)}
+      ${sc('Badge Services', dr.uniqueBadgeServices)}
+      ${sc('Total Links', dr.linkCount)}
+      ${sc('Placeholder Links', dr.placeholderLinkCount)}
+      ${scb('Sponsor Section', dr.hasSponsorSection)}
     </div>
     ${renderScoreList('Badge Breakdown', dr.badges)}
   `;
@@ -466,7 +644,9 @@ async function searchRepos() {
     }
     el.innerHTML = data.results.map(r => `<div class="card">
       <div class="flex justify-between items-center">
-        <div><strong>${r.repoName}</strong> <span class="text-muted text-sm">by ${r.owner}</span></div>
+        <div><strong>${r.repoName}</strong> <span class="text-muted text-sm">by ${r.owner}</span>
+          <span class="text-sm ${r.isStale ? 'badge-yellow' : 'text-muted'}">${r.daysOld != null ? r.daysOld + 'd ago' : ''}</span>
+        </div>
         <span class="stat-value" style="color:#58a6ff">${r.score}</span>
       </div>
       <p class="text-sm text-muted mt-10">${r.summary || ''}</p>
@@ -484,7 +664,10 @@ async function compareRepos() {
     const data = await apiPost('/api/compare', { urls: repos });
     if (data.detail) { el.innerHTML = `<div class="card"><p class="text-muted">${data.detail}</p></div>`; return; }
     if (!data.reports || !data.reports.length) { el.innerHTML = '<div class="card"><p class="text-muted">No reports found.</p></div>'; return; }
-    el.innerHTML = '<div class="card"><table style="width:100%;border-collapse:collapse">' +
+    el.innerHTML = '<div class="card"><div class="flex gap-10" style="flex-wrap:wrap;margin-bottom:10px">' +
+      data.reports.map(r => `<span class="text-sm ${r._staleWarning ? 'badge-yellow' : 'text-muted'}">
+        ${r.repoName || r.id}: ${r._staleWarning ? '&#9888; ' + r._staleWarning : 'Fresh analysis'}</span>`
+      ).join('') + '</div><table style="width:100%;border-collapse:collapse">' +
       '<tr style="border-bottom:1px solid #30363d"><th style="padding:8px;text-align:left;color:#8b949e">Metric</th>' +
       data.reports.map(r => `<th style="padding:8px;text-align:center;color:#58a6ff">${r.repoName || r.id}</th>`).join('') + '</tr>' +
       [['Overall', 'qualityScores.overall'], ['Code Quality', 'qualityScores.codeQuality'], ['Documentation', 'qualityScores.documentation'], ['Maintainability', 'qualityScores.maintainability'], ['Community Health', 'qualityScores.communityHealth'], ['Security', 'qualityScores.security'], ['Stars', 'health.stars'], ['Forks', 'health.forks'], ['Contributors', 'health.contributorCount'], ['Files', 'complexity.fileCount'], ['README Score', 'docsQuality.readmeScore']]
@@ -514,6 +697,23 @@ async function loadStats() {
   } catch (e) { el.innerHTML = `<p class="text-muted">Could not load stats: ${e.message}</p>`; }
 }
 
+async function refreshReport(repoId, btn) {
+  if (!repoId) return;
+  btn.disabled = true; btn.textContent = 'Refreshing...';
+  const el = document.getElementById('result');
+  try {
+    const data = await apiPost('/api/report/refresh', { repoId: repoId });
+    if (data.refreshed) {
+      renderReport(data.report, el);
+    } else {
+      btn.disabled = false; btn.textContent = '&#8635; Refresh';
+    }
+  } catch (e) {
+    btn.disabled = false; btn.textContent = '&#8635; Refresh';
+    el.innerHTML = `<div class="card"><p class="badge-red">Refresh failed: ${e.message}</p></div>`;
+  }
+}
+
 async function submitFeedback() {
   const url = document.getElementById('feedbackUrl').value.trim();
   const rating = parseInt(document.getElementById('feedbackRating').value);
@@ -523,6 +723,14 @@ async function submitFeedback() {
     el.textContent = data.message || 'Failed to submit feedback.';
   } catch (e) { el.textContent = 'Error: ' + e.message; }
 }
+
+updateAuthUI();
+document.getElementById('repoUrl').addEventListener('input', function() {
+  const saveBtn = document.getElementById('saveBtn');
+  saveBtn.style.display = (isLoggedIn() && this.value.trim()) ? '' : 'none';
+  saveBtn.disabled = false;
+  saveBtn.textContent = 'Save Repo';
+});
 
 fetch('/health').then(r => r.json()).then(d => {
   document.getElementById('version').textContent = 'v' + d.version;

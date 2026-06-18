@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from typing import Any
 from ..services.github import fetch_repo_info
-from ..services.analyzer import analyze_repository, load_report, list_reports, search_reports
+from ..services.analyzer import analyze_repository, load_report, list_reports, search_reports, refresh_report, _days_old
 from ..models.reinforcement import reinforcement_learner
 from ..models.persistence import get_training_data_size, list_checkpoints, load_all_experiences
 
@@ -36,12 +36,30 @@ async def analyze(req: AnalyzeRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post('/report/refresh')
+async def refresh_stale_report(body: dict[str, str]):
+    repo_id = body.get('repoId', '')
+    if not repo_id:
+        raise HTTPException(status_code=400, detail='repoId required')
+    try:
+        report = await refresh_report(repo_id)
+        return {'report': report, 'refreshed': True}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get('/report/{repo_id:path}')
 async def get_report(repo_id: str):
     report = load_report(repo_id)
     if not report:
         raise HTTPException(status_code=404, detail='Report not found')
-    return {'report': report}
+    return {
+        'report': report,
+        'daysOld': _days_old(report.get('generatedAt', '')),
+        'isStale': _days_old(report.get('generatedAt', '')) > 7,
+    }
 
 
 @router.patch('/report/{repo_id:path}')
@@ -83,11 +101,25 @@ async def compare_repos(body: dict[str, list[str]]):
     reports = []
     for url in urls:
         try:
+            cached = load_report(url, allow_stale=True)
             repo = await fetch_repo_info(url)
             report = await analyze_repository(repo)
+            if cached:
+                report['_previousReport'] = {
+                    'generatedAt': cached.get('generatedAt', ''),
+                    'daysOld': _days_old(cached.get('generatedAt', '')),
+                    'overall': cached.get('qualityScores', {}).get('overall', 0),
+                    'codeQuality': cached.get('qualityScores', {}).get('codeQuality', 0),
+                    'documentation': cached.get('qualityScores', {}).get('documentation', 0),
+                }
             reports.append(report)
         except Exception as e:
-            reports.append({'repoUrl': url, 'error': str(e)})
+            cached = load_report(url, allow_stale=True)
+            if cached:
+                cached['_staleWarning'] = 'Could not refresh; showing cached data'
+                reports.append(cached)
+            else:
+                reports.append({'repoUrl': url, 'error': str(e)})
     return {'reports': reports, 'count': len(reports)}
 
 

@@ -1,11 +1,13 @@
 from __future__ import annotations
 import time
 from typing import Any
+from datetime import datetime, timezone
 
 MIN_CONFIDENCE_THRESHOLD = 30
 RETRY_STRATEGIES = ['relaxed', 'aggressive', 'minimal']
 CIRCUIT_RESET_MS = 300_000
 CIRCUIT_FAILURE_THRESHOLD = 5
+STALE_REPORT_DAYS = 7
 
 DEFAULT_DOCS = {
     'readmeScore': 0, 'hasReadme': False, 'readmeLength': 0,
@@ -247,6 +249,32 @@ class SelfHealingLayer:
         avg = total_error / comp_count if comp_count > 0 else 0
         overall = 'healthy' if avg == 0 else ('degraded' if avg < 0.2 else 'unhealthy')
         return {'components': components, 'overallHealth': overall}
+
+    def validate_freshness(self, report: dict) -> dict:
+        generated_at = report.get('generatedAt', '')
+        if not generated_at:
+            return {'stale': True, 'daysOld': 999, 'reason': 'No generation timestamp'}
+        try:
+            dt = datetime.fromisoformat(generated_at.replace('Z', '+00:00'))
+            days_old = (datetime.now(timezone.utc) - dt).days
+        except Exception:
+            return {'stale': True, 'daysOld': 999, 'reason': 'Invalid timestamp'}
+        if days_old > STALE_REPORT_DAYS:
+            return {'stale': True, 'daysOld': days_old, 'reason': f'Report is {days_old} days old (threshold: {STALE_REPORT_DAYS})'}
+        return {'stale': False, 'daysOld': days_old, 'reason': 'Fresh'}
+
+    def auto_refresh_decision(self, report: dict) -> dict:
+        freshness = self.validate_freshness(report)
+        if not freshness['stale']:
+            return {'shouldRefresh': False, 'reason': 'Report is fresh'}
+        health = self.get_component_health('report_freshness')
+        if health['errorRate'] > 0.5:
+            return {'shouldRefresh': False, 'reason': 'Circuit breaker tripped for freshness checks'}
+        return {
+            'shouldRefresh': True,
+            'daysOld': freshness['daysOld'],
+            'reason': f'Report is {freshness["daysOld"]} days old. Auto-refresh triggered.',
+        }
 
     def reset_for_new_analysis(self) -> None:
         self.retry_counts = {}

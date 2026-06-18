@@ -62,4 +62,7 @@ data/results/
 data/checkpoints/
 data/training/
 data/logs/
+data/*.db
+data/*.db-wal
+data/*.db-shm
 tsconfig.tsbuildinfo

@@ -6,7 +6,9 @@ from datetime import datetime, timezone
 from ..config import RESULTS_DIR
 from ..schemas import AnalysisReport
 from ..models.local_ai import LocalAIProvider
+from ..models.self_healing import self_healing_layer
 
+STALE_THRESHOLD_DAYS = 7
 
 ai_provider = LocalAIProvider()
 
@@ -420,16 +422,54 @@ def _save_report(report: dict) -> None:
     fpath.write_text(json.dumps(report, indent=2), encoding='utf-8')
 
 
-def load_report(repo_id: str) -> dict | None:
+def _days_old(generated_at: str) -> int:
+    try:
+        dt = datetime.fromisoformat(generated_at.replace('Z', '+00:00'))
+        return (datetime.now(timezone.utc) - dt).days
+    except Exception:
+        return 999
+
+
+def _is_stale(report: dict) -> bool:
+    return _days_old(report.get('generatedAt', '')) > STALE_THRESHOLD_DAYS
+
+
+def load_report(repo_id: str, allow_stale: bool = True) -> dict | None:
     safe = repo_id.replace('/', '-').lower()
     fpath = RESULTS_DIR / f'{safe}.json'
     if fpath.exists():
-        return json.loads(fpath.read_text(encoding='utf-8'))
+        report = json.loads(fpath.read_text(encoding='utf-8'))
+        freshness = self_healing_layer.validate_freshness(report)
+        if freshness['stale']:
+            self_healing_layer.log_error('stale_report',
+                f'{repo_id}: {freshness["reason"]}')
+            if self_healing_layer.auto_refresh_decision(report)['shouldRefresh']:
+                self_healing_layer.record_adaptation('stale_report',
+                    {'repoId': repo_id, 'daysOld': freshness['daysOld']},
+                    {'action': 'stale_flag', 'freshness': freshness})
+        if not allow_stale and freshness['stale']:
+            return None
+        report['_freshness'] = freshness
+        return report
     prefix = safe[:safe.index('-')] if '-' in safe else safe
     for f in RESULTS_DIR.iterdir():
         if f.suffix == '.json' and f.stem.lower().startswith(prefix):
-            return json.loads(f.read_text(encoding='utf-8'))
+            report = json.loads(f.read_text(encoding='utf-8'))
+            freshness = self_healing_layer.validate_freshness(report)
+            if freshness['stale']:
+                self_healing_layer.log_error('stale_report',
+                    f'{repo_id}: {freshness["reason"]}')
+            if not allow_stale and freshness['stale']:
+                return None
+            report['_freshness'] = freshness
+            return report
     return None
+
+
+async def refresh_report(repo_id: str) -> dict:
+    from ..services.github import fetch_repo_info
+    repo = await fetch_repo_info(repo_id)
+    return await analyze_repository(repo)
 
 
 def list_reports(limit: int = 50, offset: int = 0) -> list[dict]:
@@ -439,6 +479,7 @@ def list_reports(limit: int = 50, offset: int = 0) -> list[dict]:
     for f in files[offset:offset + limit]:
         try:
             data = json.loads(f.read_text(encoding='utf-8'))
+            ga = data.get('generatedAt', '')
             results.append({
                 'id': data.get('id', f.stem),
                 'repoName': data.get('repoName', ''),
@@ -446,7 +487,9 @@ def list_reports(limit: int = 50, offset: int = 0) -> list[dict]:
                 'summary': (data.get('summary', '') or '')[:200],
                 'overall': data.get('qualityScores', {}).get('overall', 0),
                 'status': data.get('status', 'unknown'),
-                'generatedAt': data.get('generatedAt', ''),
+                'generatedAt': ga,
+                'daysOld': _days_old(ga),
+                'isStale': _is_stale(data),
             })
         except Exception:
             pass
@@ -482,4 +525,6 @@ def search_reports(query: str, limit: int = 20) -> list[dict]:
         'score': m.get('qualityScores', {}).get('overall', 0),
         'summary': (m.get('summary', '') or '')[:200],
         'generatedAt': m.get('generatedAt', ''),
+        'daysOld': _days_old(m.get('generatedAt', '')),
+        'isStale': _is_stale(m),
     } for m in matches[:limit]]

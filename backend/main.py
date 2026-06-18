@@ -1,15 +1,26 @@
 from __future__ import annotations
 from pathlib import Path
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from .api.routes import router
+from .api.auth_routes import router as auth_router
+from .models.database import init_db
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
 
 app = FastAPI(
     title='GitHub Repository Analyzer',
     version='2.0.0',
     description='AI-powered GitHub repository analysis backend',
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -21,6 +32,7 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix='/api')
+app.include_router(auth_router, prefix='/api/auth')
 
 static_dir = Path(__file__).resolve().parent.parent / 'frontend'
 static_dir.mkdir(exist_ok=True)
