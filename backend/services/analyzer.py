@@ -7,6 +7,11 @@ from ..config import RESULTS_DIR
 from ..schemas import AnalysisReport
 from ..models.local_ai import LocalAIProvider
 from ..models.self_healing import self_healing_layer
+from ..engines import run_all
+from ..engines.architecture import ArchitectureEngine
+from ..engines.security import SecurityEngine
+from ..engines.git_intelligence import GitIntelligenceEngine
+from ..engines.dependency import DependencyEngine
 
 STALE_THRESHOLD_DAYS = 7
 
@@ -246,6 +251,17 @@ def _compute_health(repo: dict) -> dict:
     }
 
 
+def _nodes_to_dict(nodes: list[dict]) -> dict:
+    result = {}
+    for n in nodes:
+        name = n.get('name', '')
+        if n.get('type') == 'tree':
+            result[name] = _nodes_to_dict(n.get('children', []))
+        else:
+            result[name] = n.get('size', 0)
+    return result
+
+
 async def analyze_repository(repo: dict) -> dict:
     outlier_alerts: list[str] = []
     ft = repo.get('fileTree', []) or []
@@ -357,14 +373,36 @@ async def analyze_repository(repo: dict) -> dict:
     )
     corrected_overall = round(docs_quality['readmeScore'] * w['rw'] + code_composite * w['cw'])
 
+    engine_enriched = {
+        **repo,
+        'fileTree': _nodes_to_dict(ft),
+        'fileContents': repo.get('dependencyFiles', {}),
+        'dependencyFiles': list(repo.get('dependencyFiles', {}).keys()),
+        'licenses': {'repo': repo.get('license', '') or ''},
+        'commits': repo.get('commits', []),
+        'branches': repo.get('branches', {}),
+    }
+    engine_results = run_all(engine_enriched)
+
+    arch_score = engine_results.get('architecture', {}).get('score', 50)
+    sec_score = engine_results.get('security', {}).get('score', 50)
+    git_score = engine_results.get('git_intelligence', {}).get('score', 50)
+    dep_score = engine_results.get('dependency', {}).get('score', 50)
+    engine_composite = round(arch_score * 0.30 + sec_score * 0.25 + git_score * 0.25 + dep_score * 0.20)
+    final_overall = round(corrected_overall * 0.75 + engine_composite * 0.25)
+
     qs = ai_result['qualityScores']
     quality_scores = {
-        'overall': corrected_overall,
+        'overall': final_overall,
         'codeQuality': qs['codeQuality'],
         'documentation': qs['documentation'],
         'maintainability': qs['maintainability'],
         'communityHealth': qs['communityHealth'],
         'security': qs['security'],
+        'architecture': arch_score,
+        'gitIntelligence': git_score,
+        'dependencyHealth': dep_score,
+        'engineComposite': engine_composite,
         'breakdown': {
             'Code Quality': {'score': qs['codeQuality'],
                              'reason': f'Based on lang diversity ({lang_count} langs), {complexity["fileCount"]} files, {complexity["averageFileSize"]} avg lines/file'},
@@ -375,7 +413,13 @@ async def analyze_repository(repo: dict) -> dict:
             'Community': {'score': qs['communityHealth'],
                           'reason': f'{health["stars"]} stars, {health["forks"]} forks, {health["contributorCount"]} contributors'},
             'Security': {'score': qs['security'],
-                         'reason': f'Lockfile: {bool(repo.get("dependencyFiles", {}).get("package-lock.json")) or bool(repo.get("dependencyFiles", {}).get("Cargo.lock"))}, CI: {has_ci}, Tests: {has_tests}'},
+                         'reason': f'Engine scan: {engine_results.get("security", {}).get("details", {}).get("secretsFound", 0)} secrets, {engine_results.get("security", {}).get("details", {}).get("unsafePatternsFound", 0)} unsafe patterns'},
+            'Architecture': {'score': arch_score,
+                             'reason': f'{engine_results.get("architecture", {}).get("details", {}).get("organization", {}).get("standardDirsFound", 0)}/6 standard dirs, {len(engine_results.get("architecture", {}).get("details", {}).get("architectures", []))} patterns detected'},
+            'Git Intelligence': {'score': git_score,
+                                 'reason': f'{engine_results.get("git_intelligence", {}).get("details", {}).get("commitStats", {}).get("totalCommits", 0)} commits, {engine_results.get("git_intelligence", {}).get("details", {}).get("commitStats", {}).get("uniqueAuthors", 0)} authors'},
+            'Dependency Health': {'score': dep_score,
+                                  'reason': f'{engine_results.get("dependency", {}).get("details", {}).get("totalDependencies", 0)} deps, {engine_results.get("dependency", {}).get("details", {}).get("ecosystemCount", 0)} ecosystems'},
             'Tech Debt': {'score': 100 - tech_debt,
                           'reason': f'{fixme_count} FIXMEs, {todo_count} TODOs in README'},
         },
@@ -409,6 +453,7 @@ async def analyze_repository(repo: dict) -> dict:
         'advancedSignals': advanced_signals,
         'deepReadme': ai_result.get('deepReadme', {}),
         'compiledReadme': ai_result.get('compiledReadme', ''),
+        'engineResults': engine_results,
     }
 
     _save_report(report)
